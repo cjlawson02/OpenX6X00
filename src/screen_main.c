@@ -1016,6 +1016,11 @@ static bool page_key(keypad_key_t key, bool tap, bool hold, bool step) {
     return false;
 }
 
+/* The APP key's tap, from elsewhere (the GSOC's clock) */
+void main_screen_apps_key(void) {
+    page_key(KEYPAD_APP, true, false, true);
+}
+
 /* PTT: in CW it keys the carrier too. False: the press refused where the radio may not transmit (radio_set_ptt) */
 static bool ptt_key(keypad_state_t state) {
     bool ok = true;

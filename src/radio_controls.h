@@ -23,6 +23,16 @@ extern "C" {
  * bound (dir 0) among those bound to the encoder (ENCODER_BIND_VOL or _MFK) */
 cfg_ctrl_t controls_encoder_get_next(encoder_binds_t encoder, cfg_ctrl_t current, int16_t dir);
 
+/* One step of a setting, and the same message line the knobs use. */
+void controls_turn(cfg_ctrl_t ctrl, int32_t diff);
+
+/* Move both filter edges together. The app has low, high, and bandwidth, not a center knob. */
+void controls_filter_center(int32_t dir);
+
+/* Split on/off, and compressor 1:1 (off) vs 2:1. For a front key that is not a button_data_t. */
+void controls_split_toggle(void);
+void controls_comp_toggle(void);
+
 /* The band of m metres (40, 20...) as the hand mic's number keys choose it: the active band of that
  * name with the lowest start, with its own memory. Nothing when the current band is already it. */
 void controls_set_band_m(int32_t m);

@@ -33,10 +33,17 @@
 #define BAND_NOT_LOADED -10
 
 params_t params = {
+#if BOARD_GSOC
+    /* Mains panel: stay lit. The X6100 blank is a battery handheld that turns the
+     * screen off after a few minutes with no key, and then stops drawing. */
+    .brightness_normal = 9, .brightness_idle = 7, .brightness_timeout = 30,
+    .screen_off_min = 0, .screen_off_always = false,
+#else
     .brightness_normal = 5, .brightness_idle = 4, .brightness_timeout = 30,
     /* The screensaver after 5 minutes and never dark, until set. Dark after 5 minutes before it came: a radio
      * where that was changed keeps its moment, with the screensaver before it (migrations.c, _16) */
     .screen_off_min = SCREEN_OFF_MIN_DEFAULT, .screen_off_always = false,
+#endif
     .screen_saver           = { .x = SCREEN_SAVER_DEFAULT, .min = 0, .max = SCREEN_SAVER_LAST, .name = "screen_saver" },
     .screen_saver_min       = { .x = SCREEN_SAVER_MIN_DEFAULT, .name = "screen_saver_min" },
     .screen_saver_speed     = { .x = SAVER_SPEED_NORMAL, .min = 0, .max = SAVER_SPEED_LAST, .name = "screen_saver_speed" },
