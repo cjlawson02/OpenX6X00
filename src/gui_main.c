@@ -29,6 +29,9 @@
 #include <signal.h>
 
 #include "main.h"
+#ifdef BOARD_INPUT_CUSTOM
+#include "gsoc_input.h"
+#endif
 #include "screen_main.h"
 #include "screen_rec.h"
 #include "gui_styles.h"
@@ -201,6 +204,7 @@ static void inputs_open(void) {
 #else
     keyboard_init();
 #endif
+#ifndef BOARD_INPUT_CUSTOM
     keypad_t *keys = keypad_init(BOARD_DEV_KEYPAD), *power = keypad_init(BOARD_DEV_POWER);
 
     rotary_main_init(BOARD_DEV_MAIN);   /* its thread wakes the GUI itself */
@@ -233,6 +237,15 @@ static void inputs_open(void) {
             inner->right[i] = KEY_MFK_NEXT;
         }
     }
+#endif
+#else
+    /* BOARD_INPUT_CUSTOM: board_input_open() owns keys/knobs/pointer. No VOL
+     * evdev; vol_update still reads vol->state for edit vs select. */
+    static rotary_t vol_dev;
+
+    vol        = &vol_dev;
+    vol->state = VOL_STATE_EDIT;
+    board_input_open();
 #endif
 }
 

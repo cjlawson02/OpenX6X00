@@ -58,10 +58,15 @@ static void on_state_change(pa_context *c, void *userdata) {
     if (connected && (st == PA_CONTEXT_FAILED || st == PA_CONTEXT_TERMINATED)) {
         /* PulseAudio went away under us: every stream is dead, the receiver is silent and the
          * waterfall stands. Out, so x6100_daemon brings PulseAudio and us back. */
-        LV_LOG_ERROR("PulseAudio gone (%s): exiting for a restart", pa_strerror(pa_context_errno(c)));
+        LV_LOG_ERROR("PulseAudio gone (%s)", pa_strerror(pa_context_errno(c)));
         fflush(stdout);
         fflush(stderr);
-        _exit(AUDIO_EXIT_NO_SERVER);
+#if BOARD_GSOC
+        /* Nothing restarts this process. Exiting leaves the last frame on the glass. */
+        connected = false;
+#else
+        _exit(AUDIO_EXIT_NO_SERVER);   /* x6100_daemon brings PulseAudio and the GUI back */
+#endif
     }
     pa_threaded_mainloop_signal(mloop, 0);
 }
@@ -90,8 +95,13 @@ static void context_connect(void) {
         ctx = NULL;
         if (attempt >= PA_CONNECT_TRIES) {
             pa_threaded_mainloop_unlock(mloop);
+#if BOARD_GSOC
+            LV_LOG_ERROR("No PulseAudio; the panel stays up without receiver audio");
+            return;
+#else
             LV_LOG_ERROR("No PulseAudio: exiting for a restart");
             exit(AUDIO_EXIT_NO_SERVER);
+#endif
         }
         pa_threaded_mainloop_unlock(mloop);
         sleep(1);
@@ -137,6 +147,9 @@ void audio_init() {
 
     mlapi = pa_threaded_mainloop_get_api(mloop);
     context_connect();
+    if (!ctx) {
+        return;
+    }
 
     LV_LOG_USER("Connected");
 

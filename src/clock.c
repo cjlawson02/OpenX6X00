@@ -9,6 +9,7 @@
 #include "clock.h"
 #include "ops_room.h"
 #include "board.h"
+#include "screen_main.h"
 
 #include "styles.h"
 #include "theme.h"
@@ -55,6 +56,18 @@ static lv_coord_t       power_half = 4; /* (power_gaps) */
 
 static void check_time_sync_cb(lv_timer_t * t);
 static time_t get_last_sync_time();
+
+static void clock_apps_key_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) == LV_EVENT_SHORT_CLICKED) {
+        main_screen_apps_key();
+    }
+}
+
+/* The time and the voltages sit on top of the clock. A tap there has to reach the clock. */
+static void pass_clicks(lv_obj_t *o) {
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
+}
+
 
 /* % + V on a supply is the widest choice: "100%" with both signs and the supply's voltage is wider than the
  * box with the wider fonts (DejaVu, the default, and Sony in VISION's box). Then the gaps narrow, the one
@@ -280,18 +293,23 @@ lv_obj_t * clock_init(lv_obj_t * parent) {
     lv_obj_add_style(obj, &clock_style, 0);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     if (theme_shape.ops_room) lv_obj_add_event_cb(obj, draw_cb, LV_EVENT_DRAW_MAIN_END, NULL);
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(obj, clock_apps_key_cb, LV_EVENT_SHORT_CLICKED, NULL);
 
     lv_obj_t *row = lv_obj_create(obj);
     lv_obj_remove_style_all(row);
+    pass_clicks(row);
     lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 0);
 
     time_label = lv_label_create(row);
+    pass_clicks(time_label);
     lv_obj_set_style_text_font(time_label, theme_shape.vision ? &sony_40 : &sony_38, 0);
 
     sec_label = lv_label_create(row);
+    pass_clicks(sec_label);
     lv_obj_set_style_text_font(sec_label, &sony_22, 0);
     lv_obj_set_style_pad_bottom(sec_label, 2, 0);
     if (theme_shape.vision)
@@ -300,6 +318,7 @@ lv_obj_t * clock_init(lv_obj_t * parent) {
     /* Voltages: symbols in Montserrat, numbers in Sony */
     row = lv_obj_create(obj);
     lv_obj_remove_style_all(row);
+    pass_clicks(row);
     lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -308,6 +327,7 @@ lv_obj_t * clock_init(lv_obj_t * parent) {
 
     for (int i = 0; i < 4; i++) {
         power_labels[i] = lv_label_create(row);
+        pass_clicks(power_labels[i]);
         lv_obj_set_style_text_font(power_labels[i], i % 2 ? &sony_24 : &power_sym_18, 0);
         lv_obj_set_style_text_color(power_labels[i], TC(text_soft), 0);
     }

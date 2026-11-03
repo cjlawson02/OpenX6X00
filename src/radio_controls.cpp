@@ -298,6 +298,43 @@ void controls_encoder_update(cfg_ctrl_t ctrl, int32_t diff, std::string &msg) {
     }
 }
 
+extern "C" void controls_turn(cfg_ctrl_t ctrl, int32_t diff) {
+    std::string msg(96, '\0');
+
+    controls_encoder_update(ctrl, diff, msg);
+    if (msg[0] != '\0') {
+        msg_update_text_fmt("%s", msg.c_str());
+    }
+}
+
+/* Both edges, so the width stays. SSB stores them separately; CW's low edge is derived
+ * from the tone and the width, and setting it rewrites the width, so the high edge is set last. */
+extern "C" void controls_filter_center(int32_t dir) {
+    const int32_t step = 50;
+    int32_t       low  = cfg_sm.cp_cur_filter_low.get();
+    int32_t       high = cfg_sm.cp_cur_filter_high.get();
+
+    if (dir) {
+        cfg_sm.cp_cur_filter_low.set(low + dir * step);
+        cfg_sm.cp_cur_filter_high.set(high + dir * step);
+        low  = cfg_sm.cp_cur_filter_low.get();
+        high = cfg_sm.cp_cur_filter_high.get();
+    }
+    msg_update_text_fmt("Filter center: %i Hz", (low + high) / 2);
+}
+
+extern "C" void controls_split_toggle(void) {
+    bool on = !cfg_sm.p_band_split.get();
+
+    cfg_sm.p_band_split.set(on);
+    msg_update_text_fmt("Split: %s", on ? "On" : "Off");
+}
+
+extern "C" void controls_comp_toggle(void) {
+    cfg_sm.p_comp.set(cfg_sm.p_comp.get() <= 1 ? 2 : 1);
+    controls_turn(CTRL_COMP, 0);
+}
+
 /* The next control (dir > 0) or the one before bound to this knob, round the list;
  * dir 0: this one if it is bound, else the next. The cluster items are on the MFK while
  * the cluster column is shown, whatever the binds say */

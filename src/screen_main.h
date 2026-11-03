@@ -53,6 +53,9 @@ void main_screen_start_app(press_action_t app);
 void main_screen_close_app(void);
 void main_screen_action(press_action_t action);
 
+/* APP front key: apps grid or APP button pages. GSOC clock tap uses the same path. */
+void main_screen_apps_key(void);
+
 /* The knobs' presses and the MFK (dir -1, +1 a turn, 0 the press), as on the main screen */
 void main_screen_vol_press(void);
 void main_screen_mfk(int dir);

@@ -85,8 +85,27 @@ elseif(HW_BACKEND STREQUAL "x6200")
 elseif(HW_BACKEND STREQUAL "stub")
     target_sources(${PROJECT_NAME} PUBLIC hw/stub/hw_stub.c)
     set(HW_LIBS m)
+elseif(HW_BACKEND STREQUAL "g90")
+    # The G90's body over its DE-9 link: libg90 (C++20) from its source tree, behind a C face
+    set(LIBG90_DIR "" CACHE PATH "libg90's source tree")
+    if(NOT EXISTS "${LIBG90_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR "HW_BACKEND g90 needs -DLIBG90_DIR=<libg90 source tree>")
+    endif()
+    set(LIBG90_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(LIBG90_BUILD_CLI OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${LIBG90_DIR} ${CMAKE_BINARY_DIR}/libg90 EXCLUDE_FROM_ALL)
+    add_library(g90_link STATIC hw/g90/g90_link.cpp)
+    target_compile_features(g90_link PRIVATE cxx_std_20)
+    target_link_libraries(g90_link PRIVATE libg90::libg90)
+    target_sources(${PROJECT_NAME} PUBLIC hw/g90/hw_g90.c)
+    set(HW_LIBS g90_link)
 else()
-    message(FATAL_ERROR "HW_BACKEND must be x6100, x6200 or stub, not '${HW_BACKEND}'")
+    message(FATAL_ERROR "HW_BACKEND must be x6100, x6200, g90 or stub, not '${HW_BACKEND}'")
+endif()
+
+# GSOC front panel (cmake -DBOARD_GSOC=ON): LM8323 + GT911 instead of the five X6100 event nodes
+if(BOARD_GSOC)
+    target_sources(${PROJECT_NAME} PUBLIC gsoc_input.c)
 endif()
 
 # Subfolders: some add their sources to the GUI, others build a library

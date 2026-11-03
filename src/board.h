@@ -1,23 +1,43 @@
 /*
  *  SPDX-License-Identifier: LGPL-2.1-or-later
  *
- *  OpenX6X00 - what the radio's Linux shows the GUI: the devices by name, the panel's size.
- *  The X6100 unless the build says BOARD_X6200 (cmake -DHW_BACKEND=x6200). Another radio on
- *  the same code changes this file (and the backend behind hw/hw.h), not the places that use them.
+ *  OpenX6X00 - two axes: HW_BACKEND picks the radio behind hw/hw.h; this file picks the panel
+ *  (size, input nodes, audio names). HW_BACKEND=g90 does not change the panel. A future GSOC panel
+ *  is BOARD_GSOC, not BOARD_X6200.
+ *  The X6100 unless the build says BOARD_X6200 (cmake -DHW_BACKEND=x6200). Another panel on the
+ *  same code changes this file, not the places that use the macros.
  *
  *  Copyright (c) 2026 RF.Guru
  */
 
 #pragma once
 
-/* The panel, landscape. BOARD_FB_ROTATE_90 says whether the framebuffer is
- * portrait and needs a 90° blit (X6100/X6200: yes). A landscape framebuffer
- * sets it to 0; fbdev then copies without rotating. DRM still needs 1
- * (waterfall/Walkie planes); drm_init() falls back to fbdev when it is 0. */
+/* The panel, landscape. BOARD_GSOC (cmake -DBOARD_GSOC=ON): 1024×600, landscape
+ * framebuffer, board_input_open() instead of the five X6100 event nodes.
+ * HW_BACKEND=g90 does not select it. BOARD_FB_ROTATE_90=0 uses fbdev's plain
+ * copy; DRM still needs 1 and falls back to fbdev when it is 0. */
+#ifdef BOARD_GSOC
+#define BOARD_DISP_W        1024
+#define BOARD_DISP_H        600
+#define BOARD_FB_ROTATE_90  0
+#define BOARD_INPUT_CUSTOM  1
+#else
 #define BOARD_DISP_W        800
 #define BOARD_DISP_H        480
+#endif
+
 #ifndef BOARD_FB_ROTATE_90
-#define BOARD_FB_ROTATE_90  1
+#define BOARD_FB_ROTATE_90  1   /* The X6100/X6200 framebuffer is portrait; LVGL is landscape. */
+#endif
+
+#ifndef BOARD_G90_DEV
+#define BOARD_G90_DEV       "/dev/ttyS1"
+#endif
+#ifndef BOARD_G90_PROFILE
+#define BOARD_G90_PROFILE   "1.81"
+#endif
+#ifndef BOARD_G90_ALLOW_TX
+#define BOARD_G90_ALLOW_TX  0
 #endif
 
 /* The AF volume's range, the base's own: the X6200 takes 0..100 (gdyuldin's X6200 GUI, 0d504863), the X6100 0..55 */

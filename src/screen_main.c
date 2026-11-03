@@ -739,20 +739,29 @@ static const struct {
     {KEYPAD_DFL, buttons_group_dfl, &params.long_dfl},
 };
 
+/* APP key / GSOC clock tap: icon grid when that setting is on, else the APP button pages */
+void main_screen_apps_key(void) {
+    if (params.icon_menus.x) {
+        if (dialog_type_is_run(dialog_apps)) {
+            dialog_destruct();
+        } else {
+            close_apps();
+            buttons_load_page_group(buttons_group_app);
+            dialog_construct(dialog_apps, obj);
+        }
+    } else {
+        close_apps();
+        buttons_load_page_group(buttons_group_app);
+    }
+}
+
 static bool page_key(keypad_key_t key, bool tap, bool hold) {
     for (size_t i = 0; i < sizeof(page_keys) / sizeof(page_keys[0]); i++) {
         if (page_keys[i].key != key) {
             continue;
         }
-        if (tap && key == KEYPAD_APP && params.icon_menus.x) {
-            /* The APP grid: APP again closes it, the button pages stay as they are */
-            if (dialog_type_is_run(dialog_apps)) {
-                dialog_destruct();
-            } else {
-                close_apps();
-                buttons_load_page_group(page_keys[i].pages);
-                dialog_construct(dialog_apps, obj);
-            }
+        if (tap && key == KEYPAD_APP) {
+            main_screen_apps_key();
         } else if (tap) {
             close_apps();
             buttons_load_page_group(page_keys[i].pages);

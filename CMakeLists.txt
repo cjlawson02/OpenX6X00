@@ -43,7 +43,7 @@ elseif(HOST_BUILD)
         add_compile_definitions(BOARD_DATA="${HOST_DATA_DIR}" BOARD_SHARE="${CMAKE_BINARY_DIR}/share")
         add_compile_definitions(X6100_SBIN="${CMAKE_SOURCE_DIR}/rootfs/usr/sbin")    # the helpers, from the tree
         set(LV_DRIVERS_SDL ON)
-        set(HW_BACKEND "stub" CACHE STRING "The radio backend: x6100 or stub")
+        set(HW_BACKEND "stub" CACHE STRING "The radio backend: x6100, g90 or stub")
         set(HOST_DEPS "${CMAKE_SOURCE_DIR}/build-host/deps" CACHE PATH "The host build's liquid-dsp, ft8_lib and boost")
         include_directories(${HOST_DEPS}/include)
         link_directories(${HOST_DEPS}/lib)
@@ -63,9 +63,16 @@ endif()
 # The radio behind src/hw/hw.h: the X6100 or the X6200 through its control library, or the
 # stub (a radio made of nothing, for the GUI on a desktop and as the template for a new radio's
 # backend). The host build above chose the stub already
-set(HW_BACKEND "x6100" CACHE STRING "The radio backend: x6100, x6200 or stub")
+set(HW_BACKEND "x6100" CACHE STRING "The radio backend: x6100, x6200, g90 or stub")
 if(HW_BACKEND STREQUAL "x6200")
         add_compile_definitions(BOARD_X6200=1)
+endif()
+
+# The GSOC panel: 1024x600, landscape framebuffer, LM8323 keys and knobs, GT911 touch.
+# Independent of HW_BACKEND (a G90 body is -DHW_BACKEND=g90). Off for the X6100, X6200 and host.
+option(BOARD_GSOC "Build for the Xiegu GSOC panel" OFF)
+if(BOARD_GSOC)
+        add_compile_definitions(BOARD_GSOC=1)
 endif()
 
 add_subdirectory(lvgl)
