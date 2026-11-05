@@ -468,6 +468,10 @@ static void band_step(bool up) {
     dialog_send(up ? EVENT_BAND_UP : EVENT_BAND_DOWN, NULL);
 }
 
+void main_screen_band_step(bool up) {
+    band_step(up);
+}
+
 /* Shown in the frequency strip while the app is open */
 static const char *app_name(press_action_t a) {
     switch (a) {

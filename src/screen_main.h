@@ -72,6 +72,9 @@ void main_screen_lock_ab(bool lock);
 bool main_screen_freq_locked();
 bool main_screen_band_locked();
 bool main_screen_mode_locked();
+/* Band up/down for a board that feeds its own keys (BOARD_GSOC). Same as the
+ * front BAND keys: skipped while an app holds the band. */
+void main_screen_band_step(bool up);
 /* The digital app open (FT8, PSK31, Olivia, RTTY...), NULL for none: it holds the radio's frequency, mode and
  * audio. By the name it has now, as in the frequency strip: FT4 once the FT8 app was switched to it, PSK63. Any
  * thread (Winlink asks) */
