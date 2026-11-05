@@ -236,11 +236,21 @@ void hw_vfo_set_pre(radio_vfo_t v, bool on) {
     (void)v; (void)on;
 }
 
-/* The shutdown bit for a few frames: the flow thread sends it */
+/* Assert shutdown_req for ~1.5 s (several ping-pongs) so the MainUnit powers
+ * down with the head — drops DE-9 pin 1 (+8 V). Same pulse gsoc-panel PWR used.
+ * Armbian halt also runs tools/gsoc-dt/sd-overlay/g90-body-shutdown.service. */
 void hw_poweroff(void) {
     pthread_mutex_lock(&mu);
     ctl.shutdown = true;
+    ctl.ptt = false;
+    ctl.atu_tune = false;
     pthread_mutex_unlock(&mu);
+    for (int i = 0; i < 6 && link_; i++) {
+        if (!exchange()) {
+            usleep(RETRY_US);
+        }
+        usleep(200000);
+    }
 }
 
 /* Every exchange carries the whole state already */
