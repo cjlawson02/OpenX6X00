@@ -8,19 +8,28 @@
  *  The GT911 is a second node, a pointer. Names come from the kernel ("lm8323", "goodix"),
  *  not from event numbers, which move between boots.
  *
- *  What each silk key does, against the GUI that already exists:
- *    MAIN            tunes, one detent one step (EVENT_ROTARY)
+ *  What each silk key does. The V1.1 manual's panel page is the source for the rings and
+ *  for F / Po; the three user keys were "not open yet", so two of them are the band keys
+ *  this panel does not otherwise have.
+ *    MAIN            tunes, one detent one step, unless F or Po has armed RIT, XIT, power
+ *                    or RF gain. The same key again, or five seconds still, returns to the VFO.
+ *                    A turn restarts those five seconds.
  *    VOL inner       the VOL value (vol_update)
- *    VOL outer       AGC, one step per detent (the GUI only has "next")
+ *    VOL outer       squelch, one step per detent (CTRL_SQL). The silk also prints AGC;
+ *                    the manual and the v1.1 firmware use this ring as squelch. AGC is the
+ *                    middle user key.
  *    VOL push        frequency lock, as a tap. A hold is not forwarded: KEYPAD_LOCK's hold
- *                    resets the radio, and this key is not that
+ *                    resets the radio. Stock lock is a short press of the power key, which
+ *                    is not on this matrix. The silk's S/P has no control in this GUI.
  *    left inner      filter bandwidth (HI/BW)
  *    left outer      filter center, both edges by the same step (LOW/CNT)
- *    left push       mode, as the hand mic MODE key
- *    F               RIT +10 Hz; hold is XIT +10 Hz (the setting exists; the DE-9 frame has no XIT)
- *    Po              transmit power +1 W; hold is RF gain +1 (the setting exists; the DE-9 frame has no RF gain)
+ *    left push       mode, as the hand mic MODE key. The manual does not assign this press.
+ *    F               arm the main knob for RIT; hold arms XIT
+ *    Po              arm the main knob for transmit power; hold arms RF gain
  *    ATU             KEYPAD_ATU (tap toggles, hold tunes)
- *    user keys       noise blanker, split, compressor
+ *    user triangle   previous band
+ *    user square     AGC, one step (the manual's on-screen AGC button)
+ *    user circle     next band
  *    hand-mic PTT    KEYPAD_PTT
  *    the other mic keys  the X6100 mic codes (hkey_put), so the mic screens already handle them
  *
@@ -42,6 +51,10 @@
 #include "vol_control.h"
 #include "control_owner.h"
 #include "radio_controls.h"
+#include "msg_box.h"
+#include "info_bar.h"
+#include "cfg/cfg_api.h"
+#include "cfg/computed_api.h"
 #include "lvgl/lvgl.h"
 
 #include <fcntl.h>
@@ -62,11 +75,10 @@ enum {
     ACT_MFK,        /* dir, or 0 for the press */
     ACT_BW,
     ACT_CENTER,
-    ACT_RIT,        /* tap RIT, hold XIT */
-    ACT_PWR,        /* tap power, hold RF gain */
-    ACT_NB,
-    ACT_SPLIT,
-    ACT_COMP,
+    ACT_SQL,        /* dir */
+    ACT_RIT,        /* tap arms RIT, hold arms XIT */
+    ACT_PWR,        /* tap arms power, hold arms RF gain */
+    ACT_BAND,       /* dir > 0 is up */
     ACT_LOCK_TAP,
     ACT_ATU,
     ACT_PTT,
@@ -83,8 +95,8 @@ static const struct {
     {KEY_DOWN,       -1, ACT_TUNE, 0},
     {KEY_VOLUMEUP,   +1, ACT_VOL,  0},
     {KEY_VOLUMEDOWN, -1, ACT_VOL,  0},
-    {KEY_F18,         0, ACT_AGC,  0},            /* VOL outer CW */
-    {KEY_F19,         0, ACT_AGC,  0},            /* VOL outer CCW: the GUI cycles one way */
+    {KEY_F18,        +1, ACT_SQL,  0},            /* VOL outer CW: squelch up */
+    {KEY_F19,        -1, ACT_SQL,  0},            /* VOL outer CCW */
     {KEY_F13,        +1, ACT_BW,     0},          /* HI/BW inner */
     {KEY_F14,        -1, ACT_BW,     0},
     {KEY_F15,        +1, ACT_CENTER, 0},          /* LOW/CNT outer */
@@ -92,9 +104,9 @@ static const struct {
     {KEY_F17,         0, ACT_HKEY, RADIO_HKEY_MODE}, /* filter push: mode cycle */
     {KEY_KBDILLUMTOGGLE, 0, ACT_RIT, 0},          /* F / delta-F */
     {KEY_KBDILLUMDOWN,   0, ACT_PWR, 0},          /* Po */
-    {KEY_SEND,           0, ACT_NB, 0},           /* user triangle */
-    {KEY_REPLY,          0, ACT_SPLIT, 0},        /* user square */
-    {KEY_FORWARDMAIL,    0, ACT_COMP, 0},         /* user circle */
+    {KEY_SEND,          -1, ACT_BAND, 0},          /* user triangle, left: previous band */
+    {KEY_REPLY,          0, ACT_AGC,  0},          /* user square: AGC */
+    {KEY_FORWARDMAIL,   +1, ACT_BAND, 0},          /* user circle, right: next band */
     {KEY_F20,         0, ACT_LOCK_TAP, 0},        /* VOL push */
     {KEY_KBDILLUMUP,  0, ACT_ATU,  0},
     {KEY_PLAYPAUSE,   0, ACT_PTT,  0},
@@ -166,25 +178,68 @@ static struct {
     bool        long_sent;
 } held[2];
 
+/* What the main knob changes after F or Po. Five seconds without a detent returns to the VFO. */
+enum { ARM_VFO = 0, ARM_RIT, ARM_XIT, ARM_PWR, ARM_RFG };
+
+#define ARM_IDLE_MS 5000
+
+static int         armed;
+static lv_timer_t *arm_timer;
+
+static cfg_ctrl_t arm_control(int which) {
+    switch (which) {
+    case ARM_RIT: return CTRL_RIT;
+    case ARM_XIT: return CTRL_XIT;
+    case ARM_PWR: return CTRL_PWR;
+    case ARM_RFG: return CTRL_RFG;
+    default:      return CTRL_VOL;
+    }
+}
+
+static void arm_timer_stop(void) {
+    if (arm_timer) {
+        lv_timer_del(arm_timer);
+        arm_timer = NULL;
+    }
+}
+
+static void arm_idle_cb(lv_timer_t *t) {
+    (void)t;
+    arm_timer = NULL;       /* one shot: LVGL deletes it */
+    armed     = ARM_VFO;
+    msg_update_text_fmt("VFO");
+}
+
+/* which == the control already armed drops back to the VFO. Otherwise the main knob takes that control
+ * and the message line shows its current value. */
+static void arm_set(int which) {
+    arm_timer_stop();
+    if (which == ARM_VFO || which == armed) {
+        armed = ARM_VFO;
+        msg_update_text_fmt("VFO");
+        return;
+    }
+    armed = which;
+    controls_turn(arm_control(which), 0);
+    arm_timer = lv_timer_create(arm_idle_cb, ARM_IDLE_MS, NULL);
+    lv_timer_set_repeat_count(arm_timer, 1);
+}
+
 static void held_cb(lv_timer_t *t) {
     int which = (int)(intptr_t)t->user_data;
 
     held[which].timer     = NULL;
     held[which].long_sent = true;
     backlight_tick();
-    if (which == HOLD_RIT) {
-        controls_turn(CTRL_XIT, 1);
-    } else {
-        controls_turn(CTRL_RFG, 1);
-    }
+    arm_set(which == HOLD_RIT ? ARM_XIT : ARM_RFG);
 }
 
 static void tap_rit(void) {
-    controls_turn(CTRL_RIT, 1);
+    arm_set(ARM_RIT);
 }
 
 static void tap_pwr(void) {
-    controls_turn(CTRL_PWR, 10);    /* the power step is 0.1 W */
+    arm_set(ARM_PWR);
 }
 
 static void hold_key(int which, int value, void (*tap)(void)) {
@@ -207,15 +262,37 @@ static void hold_key(int which, int value, void (*tap)(void)) {
 }
 
 static void tune(int dir) {
-    rotary_data_t *ev = malloc(sizeof(*ev));
+    rotary_data_t *ev;
 
+    backlight_tick();
+    if (armed != ARM_VFO) {
+        controls_turn(arm_control(armed), dir);
+        if (arm_timer) {
+            lv_timer_reset(arm_timer);
+        }
+        return;
+    }
+    ev = malloc(sizeof(*ev));
     if (!ev) {
         return;
     }
     ev->diff = (int16_t)dir;
     ev->dt   = 1;
-    backlight_tick();
     lv_event_send(lv_scr_act(), EVENT_ROTARY, ev);   /* main_knob_cb frees ev */
+}
+
+static void band_key(bool up) {
+    int32_t hz;
+
+    backlight_tick();
+    main_screen_band_step(up);
+    if (main_screen_band_locked()) {
+        msg_update_text_fmt("Band locked");
+        return;
+    }
+    hz = cparam_i_get(cfg_fg_freq);
+    msg_update_text_fmt("%s  %d.%06d", up ? "Band up" : "Band down",
+                        (int)(hz / 1000000), (int)(hz % 1000000));
 }
 
 static void on_key(const struct input_event *in) {
@@ -255,6 +332,18 @@ static void on_key(const struct input_event *in) {
         if (in->value == 1) {
             backlight_tick();
             main_screen_agc_next();
+            msg_update_text_fmt("AGC: %s", info_params_agc());
+        }
+        break;
+    case ACT_SQL:
+        if (in->value == 1) {
+            backlight_tick();
+            controls_turn(CTRL_SQL, map[i].dir);
+        }
+        break;
+    case ACT_BAND:
+        if (in->value == 1) {
+            band_key(map[i].dir > 0);
         }
         break;
     case ACT_MFK:
@@ -280,24 +369,6 @@ static void on_key(const struct input_event *in) {
         break;
     case ACT_PWR:
         hold_key(HOLD_PWR, in->value, tap_pwr);
-        break;
-    case ACT_NB:
-        if (in->value == 1) {
-            backlight_tick();
-            controls_turn(CTRL_NB, 1);
-        }
-        break;
-    case ACT_SPLIT:
-        if (in->value == 1) {
-            backlight_tick();
-            controls_split_toggle();
-        }
-        break;
-    case ACT_COMP:
-        if (in->value == 1) {
-            backlight_tick();
-            controls_comp_toggle();
-        }
         break;
     case ACT_LOCK_TAP:
         if (in->value == 1) {

@@ -66,6 +66,8 @@ endif()
 set(HW_BACKEND "x6100" CACHE STRING "The radio backend: x6100, x6200, g90 or stub")
 if(HW_BACKEND STREQUAL "x6200")
         add_compile_definitions(BOARD_X6200=1)
+elseif(HW_BACKEND STREQUAL "g90")
+        add_compile_definitions(HW_BACKEND_G90=1)
 endif()
 
 # The GSOC panel: 1024x600, landscape framebuffer, LM8323 keys and knobs, GT911 touch.

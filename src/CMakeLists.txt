@@ -86,17 +86,46 @@ elseif(HW_BACKEND STREQUAL "stub")
     target_sources(${PROJECT_NAME} PUBLIC hw/stub/hw_stub.c)
     set(HW_LIBS m)
 elseif(HW_BACKEND STREQUAL "g90")
-    # The G90's body over its DE-9 link: libg90 (C++20) from its source tree, behind a C face
-    set(LIBG90_DIR "" CACHE PATH "libg90's source tree")
-    if(NOT EXISTS "${LIBG90_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "HW_BACKEND g90 needs -DLIBG90_DIR=<libg90 source tree>")
-    endif()
+    # Xiegu G90 body on the DE-9 head link (115200 8N1), stock firmware, behind hw.h.
+    # libg90 is C++20; g90_link is the C face. An empty LIBG90_DIR fetches the pin below
+    # (same pattern as aether_x6100_control). -DLIBG90_DIR=<tree> uses that tree instead.
+    # -DLIBG90_USE_INSTALLED=ON is find_package(libg90) when a package is already installed.
+    # Profile defaults to 1.81 (G90_PROFILE). PTT and ATU tune stay off unless G90_ALLOW_TX=1.
+    set(LIBG90_GIT_REPOSITORY "https://github.com/cjlawson02/libg90.git" CACHE STRING
+        "libg90 git URL when LIBG90_DIR is empty")
+    # No release tag yet. This is origin/main: the v0.1.0 library (cfec8f2) plus a Renovate config.
+    set(LIBG90_GIT_TAG "dd1377a7c528af1139d80582a4d32c6fc704dfa4" CACHE STRING
+        "libg90 revision fetched when LIBG90_DIR is empty")
+    set(LIBG90_DIR "" CACHE PATH "libg90 source tree; empty fetches LIBG90_GIT_TAG")
+    option(LIBG90_USE_INSTALLED "find_package(libg90) instead of fetching it" OFF)
     set(LIBG90_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(LIBG90_BUILD_CLI OFF CACHE BOOL "" FORCE)
-    add_subdirectory(${LIBG90_DIR} ${CMAKE_BINARY_DIR}/libg90 EXCLUDE_FROM_ALL)
+    if(LIBG90_DIR)
+        if(NOT EXISTS "${LIBG90_DIR}/CMakeLists.txt")
+            message(FATAL_ERROR "LIBG90_DIR='${LIBG90_DIR}' has no CMakeLists.txt")
+        endif()
+        message(STATUS "HW_BACKEND=g90: libg90 from LIBG90_DIR=${LIBG90_DIR}")
+        add_subdirectory(${LIBG90_DIR} ${CMAKE_BINARY_DIR}/libg90 EXCLUDE_FROM_ALL)
+    elseif(LIBG90_USE_INSTALLED)
+        find_package(libg90 0.1.0 REQUIRED CONFIG)
+        message(STATUS "HW_BACKEND=g90: libg90 from find_package (${libg90_DIR})")
+    else()
+        message(STATUS "HW_BACKEND=g90: libg90 FetchContent GIT_REPOSITORY=${LIBG90_GIT_REPOSITORY} GIT_TAG=${LIBG90_GIT_TAG}")
+        include(FetchContent)
+        FetchContent_Declare(libg90
+            GIT_REPOSITORY ${LIBG90_GIT_REPOSITORY}
+            GIT_TAG        ${LIBG90_GIT_TAG}
+        )
+        FetchContent_MakeAvailable(libg90)
+    endif()
+    if(NOT TARGET libg90::libg90)
+        message(FATAL_ERROR "HW_BACKEND=g90: libg90::libg90 was not defined")
+    endif()
     add_library(g90_link STATIC hw/g90/g90_link.cpp)
-    target_compile_features(g90_link PRIVATE cxx_std_20)
-    target_link_libraries(g90_link PRIVATE libg90::libg90)
+    target_compile_features(g90_link PUBLIC cxx_std_20)
+    # PUBLIC so the static libg90 archive is on the GUI's link line (a PRIVATE
+    # link into a static library is not propagated).
+    target_link_libraries(g90_link PUBLIC libg90::libg90)
     target_sources(${PROJECT_NAME} PUBLIC hw/g90/hw_g90.c)
     set(HW_LIBS g90_link)
 else()
