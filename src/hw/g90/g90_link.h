@@ -37,6 +37,7 @@ typedef struct {
     uint8_t  nb_level, nb_width;    /* nibbles */
     uint8_t  sql_level;              /* 0 .. 9 */
     bool     split;
+    bool     headphones;       /* route body RX AF to DE-9 phones1/2 */
     bool     tuner;
     bool     mic_comp;
     int16_t  rit_hz;            /* -512 .. 511 */
