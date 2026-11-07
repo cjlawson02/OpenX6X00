@@ -66,6 +66,7 @@ g90::HeadEncodeRequest to_request(const g90_ctl_t &c, g90::Profile profile) {
     ctl.nb_width        = c.nb_width & 0x0F;
     ctl.sql_level       = std::min<uint8_t>(c.sql_level, 9);
     ctl.split_en        = c.split;
+    ctl.headphones      = c.headphones;
     ctl.tuner_en        = c.tuner;
     ctl.mic_compression = c.mic_comp;
     ctl.rit_hz          = std::clamp<int>(c.rit_hz, -512, 511);
