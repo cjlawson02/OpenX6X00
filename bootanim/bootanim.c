@@ -20,12 +20,16 @@
  *
  *  Started in the background by /etc/init.d/S00bootanim. Any failure just
  *  skips that part: the boot never waits for it.
+ *
+ *  BOARD_GSOC: same 800×480 logo centred on the 1024×600 landscape framebuffer;
+ *  no CW boot sound (that path is X6100/X6200 control + Morse GPIO).
  */
 
 #include <errno.h>
 #include <fcntl.h>
-#include <gpiod.h>
 #include <linux/fb.h>
+#ifndef BOARD_GSOC
+#include <gpiod.h>
 #include <alsa/asoundlib.h>
 /* The base, through the control library of the radio this is built for (BOARD_X6200 from CMake) */
 #ifdef BOARD_X6200
@@ -39,11 +43,12 @@
 #define base_rxvol_set      x6100_control_rxvol_set
 #define base_record_set     x6100_control_record_set
 #endif
+#include <sqlite3.h>
+#endif
 #include <math.h>
 #include <png.h>
 #include <pthread.h>
 #include <signal.h>
-#include <sqlite3.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,6 +59,10 @@
 
 #define W        800    /* the logo, landscape */
 #define H        480
+#ifdef BOARD_GSOC
+#define FB_W     1024   /* GSOC panel, landscape */
+#define FB_H     600
+#endif
 #define SLOW(ms) ((ms) * 28 / 19)   /* the 1.9 s of steps played over 2.8 s */
 #define FADE_MS  SLOW(180)          /* each pixel fades in over this */
 #define FRAME_MS 40     /* 25 frames per second */
@@ -74,6 +83,7 @@ static int64_t now_ms(void) {
 
 /* ---- Boot sound ----------------------------------------------------------- */
 
+#ifndef BOARD_GSOC
 #define PARAMS_DB   "/mnt/params.db"
 #define AUDIO_BUSY  "/tmp/x6100-bootanim.audio" /* while the codec is open: S49bootanim waits */
 #define RATE        44100
@@ -260,6 +270,15 @@ static void sound_end(pthread_t th) {
     key_release();
     unlink(AUDIO_BUSY);
 }
+#else  /* BOARD_GSOC: no X6100 CW / Morse GPIO boot sound */
+static int sound_start(pthread_t *th) {
+    (void)th;
+    return 0;
+}
+static void sound_end(pthread_t th) {
+    (void)th;
+}
+#endif /* !BOARD_GSOC */
 
 /* ---- Animation ------------------------------------------------------------ */
 
@@ -325,6 +344,44 @@ int main(int argc, char **argv) {
     if (!own && !logo_read(OUR_LOGO, logo)) return 1;
     int fade = own ? OWN_FADE_MS : FADE_MS;
 
+#ifdef BOARD_GSOC
+    /* GSOC: 1024×600 landscape; logo centred with letterbox in the logo background */
+    int fd = open("/dev/fb0", O_RDWR);
+    struct fb_var_screeninfo v;
+    struct fb_fix_screeninfo f;
+    if (fd < 0 || ioctl(fd, FBIOGET_VSCREENINFO, &v) || ioctl(fd, FBIOGET_FSCREENINFO, &f) ||
+        v.xres != FB_W || v.yres != FB_H || v.bits_per_pixel != 32) return 1;
+    uint8_t *fb = mmap(NULL, f.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (fb == MAP_FAILED) return 1;
+    #define PIX(r, g, b) ((uint32_t)(r) << v.red.offset | (uint32_t)(g) << v.green.offset | (uint32_t)(b) << v.blue.offset)
+
+    const uint8_t *bg = logo;
+    const int      ox = (FB_W - W) / 2, oy = (FB_H - H) / 2;
+    const uint32_t bg_pix = PIX(bg[0], bg[1], bg[2]);
+    static uint32_t off[W * H];
+    static int16_t  t0[W * H];
+    static uint32_t src[W * H];
+    int n = 0, end = 0;
+
+    for (int y = 0; y < FB_H; y++)
+        for (int x = 0; x < FB_W; x++)
+            *(uint32_t *)(fb + y * f.line_length + x * 4) = bg_pix;
+
+    for (int y = 0; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            const uint8_t *p = logo + (y * W + x) * 3;
+            uint32_t       o = (oy + y) * f.line_length + (ox + x) * 4;
+
+            *(uint32_t *)(fb + o) = bg_pix;
+            if (p[0] == bg[0] && p[1] == bg[1] && p[2] == bg[2]) continue;
+            off[n] = o;
+            t0[n]  = own ? 0 : SLOW(start_ms(x, y, p));
+            src[n] = (y * W + x) * 3;
+            if (t0[n] + fade > end) end = t0[n] + fade;
+            n++;
+        }
+    }
+#else
     /* The panel is 480x800 portrait: landscape (x, y) is fb (y, 799 - x), as the kernel logo */
     int fd = open("/dev/fb0", O_RDWR);
     struct fb_var_screeninfo v;
@@ -356,12 +413,17 @@ int main(int argc, char **argv) {
             n++;
         }
     }
+#endif
 
     pthread_t th;
     int       sound = sound_start(&th);
     /* With the sound the animation starts later, so the last element ends on the full logo
      * (cq_len has one dit of silence at the end; 100 ms is the codec buffer) */
-    int64_t   start = now_ms() + (sound ? (cq_len - RATE * DIT_MS / 1000) * 1000LL / RATE + 100 - end : 0);
+    int64_t   start = now_ms();
+#ifndef BOARD_GSOC
+    if (sound)
+        start += (cq_len - RATE * DIT_MS / 1000) * 1000LL / RATE + 100 - end;
+#endif
     int64_t   wait0 = start - now_ms();
     if (wait0 > 0) usleep(wait0 * 1000);
     for (int t = 0;; t += FRAME_MS) {
