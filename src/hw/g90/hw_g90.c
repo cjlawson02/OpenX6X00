@@ -23,6 +23,7 @@
 #include "../hw.h"
 #include "../../board.h"
 #include "g90_link.h"
+#include "g90_local_af.h"
 #include "g90_local_iq.h"
 #include "g90_psd_fuse.h"
 
@@ -48,6 +49,7 @@
 #define SMETER_DBM_OFFS 18
 #define VOL_MAX_GUI     BOARD_VOL_MAX
 #define VOL_MAX_WIRE    28
+#define AF_MAX_PCT      600     /* local AF loopback gain at VOL max (~+15 dB over the raw Mic1 level) */
 
 static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
 static g90_link_t     *link_;
@@ -68,6 +70,9 @@ static int             iq_only_left;
 static radio_base_ver_t ver;
 static char            ver_str[16] = "?";
 static bool            allow_tx;
+#ifdef BOARD_GSOC
+static bool            af_vol_seen;
+#endif
 
 /* ---- Init ----------------------------------------------------------------------------- */
 
@@ -193,6 +198,9 @@ static uint16_t edge(int32_t hz) {
 }
 
 bool hw_set_i(hw_param_t p, int32_t v) {
+    bool af_on;
+    int  af_pct;
+
     if (p >= HW_PARAM_COUNT) {
         return false;
     }
@@ -214,6 +222,8 @@ bool hw_set_i(hw_param_t p, int32_t v) {
         case HW_NB_LEVEL:       ctl.nb_level = (uint8_t)v; break;
         case HW_NB_WIDTH:       ctl.nb_width = (uint8_t)v; break;
         case HW_SQL:            ctl.sql_level = (uint8_t)(v < 0 ? 0 : v > BOARD_SQL_MAX ? BOARD_SQL_MAX : v); break;
+        /* Head ctrl1 bit 0x04: route RX AF from the body speaker to DE-9 phones1/2. */
+        case HW_SPMODE:         ctl.headphones = v; break;
         /* radio.c's compressor: COMP_ON true is OFF (the X6100's sense, see hw_x6200.c) */
         case HW_COMP_ON:        ctl.mic_comp = !v; break;
         case HW_FILTER1_LOW:    ctl.vfo[0].filter_low_hz = ctl.vfo[1].filter_low_hz = edge(v); break;
@@ -222,7 +232,20 @@ bool hw_set_i(hw_param_t p, int32_t v) {
             /* Not on the DE-9 wire, or not mapped yet: kept for hw_get_i() only */
             break;
     }
+    af_on  = ctl.headphones;
+    af_pct = ctl.volume * AF_MAX_PCT / VOL_MAX_WIRE;
     pthread_mutex_unlock(&mu);
+#ifdef BOARD_GSOC
+    /* With the headphones bit the body mutes itself and its AF reaches the GSOC on Mic1: VOL is the
+     * loopback's gain here (the wire volume no longer matters). 0 is silent, VOL max is AF_MAX_PCT. */
+    if (p == HW_RXVOL) {
+        af_vol_seen = true;
+    }
+    /* Not before VOL has been set once: ctl.volume starts at 8, which is not the user's level */
+    if ((p == HW_SPMODE || p == HW_RXVOL) && af_vol_seen) {
+        g90_local_af_set(af_on, af_pct);
+    }
+#endif
     if ((p == HW_PTT || p == HW_ATU_TUNE) && v && !allow_tx) {
         fprintf(stderr, "hw_g90: TX blocked (G90_ALLOW_TX is not 1)\n");
     }
@@ -290,6 +313,7 @@ void hw_poweroff(void) {
         }
         usleep(200000);
     }
+    g90_local_af_stop();
     g90_local_iq_stop();
 }
 
