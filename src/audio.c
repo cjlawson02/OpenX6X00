@@ -199,6 +199,13 @@ void audio_init() {
 
 void audio_mixer_setup(radio_base_ver_t base_ver) {
     int res;
+#ifdef BOARD_GSOC
+    /* CS4271 on GSOC-Sound-Card (kernel cs4271.c): keep Master unmuted at full scale.
+     * AF gain is the G90 VOL byte, not this codec attenuator. No Mic1/AIF1 path. */
+    (void)base_ver;
+    res = system("amixer -c 1 sset 'Master' 127,127 unmute");
+    (void)res;
+#else
     // overall level
     res = system("amixer sset 'Headphone',0 63,63"); // max output level
     // Play level from app to radio (for FT8)
@@ -223,6 +230,7 @@ void audio_mixer_setup(radio_base_ver_t base_ver) {
     res = system("amixer sset 'AIF1 AD0',0 160,160");
     res = system("amixer sset 'AIF1 AD0 Stereo',0 'Mix Mono'"); // Another option - Sum Mono
     res = system("amixer sset 'AIF1 Data Digital ADC',0 cap");
+#endif
 }
 
 static pa_stream *cur_stm(void) {
