@@ -277,7 +277,9 @@ static void tune(int dir) {
         return;
     }
     ev->diff = (int16_t)dir;
-    ev->dt   = 1;
+    /* dt 0: one detent = one Step (freq_accel). A fake dt of 1 ms made LITE
+     * accel always hit its ×6 cap (1000 Hz Step → 6 kHz jumps). */
+    ev->dt = 0;
     lv_event_send(lv_scr_act(), EVENT_ROTARY, ev);   /* main_knob_cb frees ev */
 }
 
