@@ -126,7 +126,8 @@ elseif(HW_BACKEND STREQUAL "g90")
     # PUBLIC so the static libg90 archive is on the GUI's link line (a PRIVATE
     # link into a static library is not propagated).
     target_link_libraries(g90_link PUBLIC libg90::libg90)
-    target_sources(${PROJECT_NAME} PUBLIC hw/g90/hw_g90.c)
+    target_sources(${PROJECT_NAME} PUBLIC
+        hw/g90/hw_g90.c hw/g90/g90_local_iq.c hw/g90/g90_psd_fuse.c)
     set(HW_LIBS g90_link)
 else()
     message(FATAL_ERROR "HW_BACKEND must be x6100, x6200, g90 or stub, not '${HW_BACKEND}'")

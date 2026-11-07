@@ -5,6 +5,12 @@
  *  uses, with the G90's stock firmware: libg90 through g90_link.h. Each hw_flow_read() is one
  *  ping-pong: the whole head state out, one body frame back (~25 a second). The body sends its own
  *  160-bin spectrum, about 48 kHz around the active VFO (HW_CAP_PSD, no zoom), and raw meters.
+ *  G90_FUSE_IQ=1 pairs that 160-bin spectrum with the local CS4271 IQ FFT (hw:1,0 @ 192 kHz):
+ *  body only in the DE-9 band, IQ only on the skirts, both parked on the GUI noise floor.
+ *  A reply still carries the spectrum from before the frequency in that head frame. While the
+ *  active VFO is moving, and for two replies after it rests, the row is the IQ FFT alone so
+ *  that late copy is not drawn beside the carrier. Tuning and meters stay on the DE-9 link.
+ *  If the codec will not open, the body spectrum is used alone.
  *
  *  Compile-time defaults are BOARD_G90_DEV, BOARD_G90_PROFILE, and BOARD_G90_ALLOW_TX in board.h.
  *  G90_DEV, G90_PROFILE, and G90_ALLOW_TX override them when set and non-empty; G90_ALLOW_TX must
@@ -17,6 +23,8 @@
 #include "../hw.h"
 #include "../../board.h"
 #include "g90_link.h"
+#include "g90_local_iq.h"
+#include "g90_psd_fuse.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -47,6 +55,16 @@ static g90_ctl_t       ctl;     /* under mu: radio.c's thread writes, the flow t
 static int32_t         reg_i[HW_PARAM_COUNT];
 static g90_body_t      body;
 static float           psd_db[PSD_BINS];
+static float           iq_row[G90_FUSE_BINS];
+static float           iq_psd[G90_FUSE_BINS];
+static float           iq_floor;
+static int             iq_floor_ok;
+static g90_fuse_state_t fuse_st;
+static int             fuse_on;
+/* Replies whose spectrum was measured at the previous VFO. The body's FFT cannot
+ * reflect a frequency until the frame after the one that sent it. */
+static uint32_t        sent_hz;
+static int             iq_only_left;
 static radio_base_ver_t ver;
 static char            ver_str[16] = "?";
 static bool            allow_tx;
@@ -77,6 +95,17 @@ bool hw_init(void) {
     ctl.rf_power_w = 5;
     ctl.allow_tx   = allow_tx;
     fprintf(stderr, "hw_g90: %s, profile %s, TX %s\n", dev, prof, allow_tx ? "allowed" : "blocked");
+    {
+        const char *fuse = getenv("G90_FUSE_IQ");
+
+        fuse_on = fuse && !strcmp(fuse, "1");
+        if (fuse_on) {
+            g90_fuse_state_reset(&fuse_st);
+            if (!g90_local_iq_start()) {
+                fprintf(stderr, "hw_g90: G90_FUSE_IQ set, codec not open — body FFT only\n");
+            }
+        }
+    }
     return true;
 }
 
@@ -93,6 +122,16 @@ static bool exchange(void) {
             fprintf(stderr, "hw_g90: %s (%u)\n", err, fails);
         }
         return false;
+    }
+    {
+        uint32_t hz = c.vfo[c.vfo_b ? 1 : 0].freq_hz;
+
+        if (hz != sent_hz) {
+            sent_hz      = hz;
+            iq_only_left = 2;
+        } else if (iq_only_left > 0) {
+            iq_only_left--;
+        }
     }
     return true;
 }
@@ -251,6 +290,7 @@ void hw_poweroff(void) {
         }
         usleep(200000);
     }
+    g90_local_iq_stop();
 }
 
 /* Every exchange carries the whole state already */
@@ -279,16 +319,28 @@ bool hw_flow_read(hw_pack_t *p) {
         usleep(RETRY_US);
         return false;
     }
-    const size_t off = (PSD_BINS - G90_FFT_BINS) / 2;
-
-    for (size_t i = 0; i < PSD_BINS; i++) {
-        psd_db[i] = i >= off && i < off + G90_FFT_BINS ? PSD_FLOOR_DB + PSD_DB_PER_STEP * (float)body.fft[i - off]
-                                                       : PSD_PAD_DB;
-    }
     memset(p, 0, sizeof(*p));
-    p->psd        = psd_db;
-    p->n_psd      = PSD_BINS;
-    p->psd_span   = PSD_SPAN_HZ;
+    if (fuse_on && g90_local_iq_copy(iq_row)) {
+        if (iq_only_left > 0) {
+            g90_psd_iq_place(&iq_floor, &iq_floor_ok, iq_row, iq_psd);
+            g90_fuse_state_reset(&fuse_st);
+        } else {
+            g90_psd_fuse(&fuse_st, body.fft, iq_row, iq_psd);
+        }
+        p->psd      = iq_psd;
+        p->n_psd    = G90_FUSE_BINS;
+        p->psd_span = G90_FUSE_SPAN_HZ;
+    } else {
+        const size_t off = (PSD_BINS - G90_FFT_BINS) / 2;
+
+        for (size_t i = 0; i < PSD_BINS; i++) {
+            psd_db[i] = i >= off && i < off + G90_FFT_BINS ? PSD_FLOOR_DB + PSD_DB_PER_STEP * (float)body.fft[i - off]
+                                                           : PSD_PAD_DB;
+        }
+        p->psd      = psd_db;
+        p->n_psd    = PSD_BINS;
+        p->psd_span = PSD_SPAN_HZ;
+    }
     p->smeter_dbm = (int16_t)(body.s_meter + SMETER_DBM_OFFS);
     p->tx         = body.po > 0;
     /* Raw meters; their scales on the 1.81 body are not pinned (remote-xcomm.md) */
