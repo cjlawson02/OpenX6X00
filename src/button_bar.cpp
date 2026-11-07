@@ -172,34 +172,45 @@ static const char *span_narrower_label() {
 /* TX power in the digital apps: press for the next step, up to the apps' 7 W cap */
 static const char *dig_pwr_label() {
     static char buf[20];
-    snprintf(buf, sizeof(buf), "Power\n%g W", LV_MIN(cfg_sm.p_pwr.get(), TX_PLAYER_MAX_PWR_W));
+    float p = LV_MIN(cfg_sm.p_pwr.get(), TX_PLAYER_MAX_PWR_W);
+
+    snprintf(buf, sizeof(buf), "Power\n" BOARD_PWR_LABEL_FMT " W", p);
     return buf;
 }
 
 /* The setting itself (the radio follows it): radio_set_pwr() alone left the label and the
  * next step on the old value, and the transmission levelled to it */
 static void dig_pwr_cb(button_data_t *data) {
-    static const float steps[] = {0.1f, 0.2f, 0.5f, 1.0f, 2.0f, 3.0f, 5.0f, TX_PLAYER_MAX_PWR_W};
-    float p = LV_MIN(cfg_sm.p_pwr.get(), TX_PLAYER_MAX_PWR_W), next = steps[0];
+    /* Skip fractions the body cannot take (G90 BOARD_PWR_STEP is 1 W) */
+    static const float steps_all[] = {0.1f, 0.2f, 0.5f, 1.0f, 2.0f, 3.0f, 5.0f, TX_PLAYER_MAX_PWR_W};
+    float p = LV_MIN(cfg_sm.p_pwr.get(), TX_PLAYER_MAX_PWR_W), next = BOARD_PWR_MIN;
+    float eps = BOARD_PWR_STEP * 0.5f;
+    bool  found = false;
 
-    for (float s : steps) {
-        if (s > p + 0.05f) {
+    for (float s : steps_all) {
+        if (s + 1e-3f < BOARD_PWR_MIN || s + 1e-3f < BOARD_PWR_STEP)
+            continue;
+        if (s > p + eps) {
             next = s;
+            found = true;
             break;
         }
     }
+    if (!found)
+        next = BOARD_PWR_MIN;
     cfg_sm.p_pwr.set(next);
     /* A step up that the setting did not take is the top it allows now (the X6200 on battery: 5 W),
      * so round to the first: the button stayed on 5 W there */
-    if (next > p && cfg_sm.p_pwr.get() < p + 0.05f) {
-        cfg_sm.p_pwr.set(steps[0]);
+    if (next > p && cfg_sm.p_pwr.get() < p + eps) {
+        cfg_sm.p_pwr.set(BOARD_PWR_MIN);
     }
 }
 
 /* TUNE for an external tuner: a press starts it at its own power (the label's), again stops it. ext_tune.c
  * refreshes and marks it as it starts and ends */
 static const char *ext_tune_label() {
-    return ext_tune_on() ? "Ext tune:\nStop" : text("Ext tune:\n%0.1f W", cfg_sm.p_tune_pwr.get());
+    return ext_tune_on() ? "Ext tune:\nStop"
+                         : text("Ext tune:\n" BOARD_PWR_LABEL_FMT " W", cfg_sm.p_tune_pwr.get());
 }
 
 /* ---- the buttons ---- */
@@ -245,7 +256,7 @@ static button_data_t btn_sql = knob([] { return text("Squelch:\n%i", cfg_sm.p_sq
                                     CTRL_SQL, &cfg_sm.p_squelch);
 static button_data_t btn_rfg = knob([] { return text("RF gain:\n%i", cfg_sm.p_rfgain.get()); },
                                     CTRL_RFG, &cfg_sm.p_rfgain);
-button_data_t btn_tx_pwr = knob([] { return text("TX power:\n%0.1f W", cfg_sm.p_pwr.get()); },
+button_data_t btn_tx_pwr = knob([] { return text("TX power:\n" BOARD_PWR_LABEL_FMT " W", cfg_sm.p_pwr.get()); },
                                 CTRL_PWR, &cfg_sm.p_pwr);
 button_data_t btn_dig_pwr = fn_btn(dig_pwr_label, dig_pwr_cb, &cfg_sm.p_pwr);
 button_data_t btn_ext_tune = fn_btn(ext_tune_label, [](button_data_t *) { ext_tune_toggle(); }, &cfg_sm.p_tune_pwr);

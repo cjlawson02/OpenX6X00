@@ -3758,7 +3758,7 @@ static uint8_t make_swr_protect(uint8_t row) {
 }
 
 /* TUNE for an external tuner (ext_tune.h): its own power and its time limit */
-static float_slider_t tune_pwr_fs     = {0.1f, [](float v) { cfg_sm.p_tune_pwr.set(v); }};
+static float_slider_t tune_pwr_fs     = {BOARD_PWR_STEP, [](float v) { cfg_sm.p_tune_pwr.set(v); }};
 static param_slider_t tune_time_slider = {&cfg_sm.p_tune_time, TUNE_TIME_MIN_S, TUNE_TIME_MAX_S, 1, "%d"};
 
 static uint8_t make_ext_tune(uint8_t row) {

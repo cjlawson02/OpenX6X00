@@ -487,8 +487,8 @@ static void update_cb(lv_timer_t *t) {
     lv_bar_set_value(sql_bar, param_i_get(cfg_squelch), LV_ANIM_OFF);
     snprintf(buf, sizeof(buf), "%i", (int)param_i_get(cfg_squelch));
     set_text(sql_val, buf);
-    lv_bar_set_value(pwr_bar, (int32_t)(param_f_get(cfg_pwr) * 10.0f + 0.5f), LV_ANIM_OFF);
-    snprintf(buf, sizeof(buf), "%.1f W", param_f_get(cfg_pwr));
+    lv_bar_set_value(pwr_bar, (int32_t)(param_f_get(cfg_pwr) / BOARD_PWR_STEP + 0.5f), LV_ANIM_OFF);
+    snprintf(buf, sizeof(buf), BOARD_PWR_LABEL_FMT " W", param_f_get(cfg_pwr));
     set_text(pwr_val, buf);
 
     if (on_air != tx) {
@@ -609,7 +609,7 @@ static void build(void) {
     rule(ROWS_Y - 14);
     vol_bar = level_row("VOL", ROWS_Y, BOARD_VOL_MAX, &vol_val);
     sql_bar = level_row("SQL", ROWS_Y + ROW_STEP, 100, &sql_val);
-    pwr_bar = level_row("PWR", ROWS_Y + 2 * ROW_STEP, (int32_t)(BOARD_PWR_MAX * 10), &pwr_val);
+    pwr_bar = level_row("PWR", ROWS_Y + 2 * ROW_STEP, (int32_t)(BOARD_PWR_MAX / BOARD_PWR_STEP + 0.5f), &pwr_val);
 
     timer = lv_timer_create(update_cb, 100, NULL);
 }

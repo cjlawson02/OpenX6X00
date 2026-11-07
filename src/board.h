@@ -55,54 +55,110 @@
 #define BOARD_KEY_VOL_MAX   32
 #endif
 
-/* The top of the TX power setting (PWR), in W: the X6100 is a 10 W radio, the X6200 is rated 8 W on an
- * external supply, and gdyuldin's X6200 GUI stops its setting at 8.0 (vol.c). 10 W asked of the X6200
- * went to its base as 10 W (#53). On battery the X6200 stops at 5 W, as Xiegu's app (1.0.8) does
- * (radio.c follows the supply); the X6100 has no battery cap */
+/* Radio ranges + knob/encoder steps (radio_controls.cpp). HW_BACKEND picks the body; each
+ * profile sets every macro — do not fall through to another board's steps. */
 #ifdef BOARD_X6200
-#define BOARD_PWR_MAX       8.0f
-#define BOARD_PWR_MAX_BAT   5.0f
-#else
-#define BOARD_PWR_MAX       10.0f
+#define BOARD_PWR_MIN           0.1f
+#define BOARD_PWR_MAX           8.0f
+#define BOARD_PWR_MAX_BAT       5.0f
+#define BOARD_PWR_STEP          0.1f
+#define BOARD_PWR_LABEL_FMT     "%0.1f"
+#define BOARD_SQL_MAX           100
+#define BOARD_RFG_MAX           100
+#define BOARD_RIT_MAX           1500
+#define BOARD_XIT_MAX           1500
+#define BOARD_MIC_MAX           50
+#define BOARD_NB_MAX            100
+#define BOARD_HF_MIN_HZ         100000
+#define BOARD_HF_MAX_HZ         55000000
+#define BOARD_SQL_STEP          1
+#define BOARD_RFG_STEP          1
+#define BOARD_RIT_STEP          10
+#define BOARD_XIT_STEP          10
+#define BOARD_NB_LEVEL_STEP     5
+#define BOARD_NB_WIDTH_STEP     5
+#define BOARD_NR_LEVEL_STEP     5
+#define BOARD_MONI_STEP         1
+#define BOARD_KEY_SPEED_STEP    1
+#define BOARD_KEY_TONE_STEP     10
+#define BOARD_KEY_VOL_STEP      1
+#define BOARD_QSK_TIME_STEP     10
+#define BOARD_KEY_RATIO_STEP    0.1f
+#define BOARD_CW_DECODER_SNR_STEP 0.1f
+#define BOARD_CW_PEAK_Q_STEP    1
+#define BOARD_DNF_CENTER_STEP   50
+#define BOARD_DNF_WIDTH_STEP    5
+#define BOARD_WF_REF_STEP       1
+#define BOARD_FILTER_LOW_STEP   10
+#define BOARD_FILTER_BW_STEP    20
+#elif defined(HW_BACKEND_G90)
+#define BOARD_PWR_MIN           1.0f
+#define BOARD_PWR_MAX           20.0f
+#define BOARD_PWR_STEP          1.0f        /* head rf_power uint8_t watts */
+#define BOARD_PWR_LABEL_FMT     "%0.0f"
+#define BOARD_SQL_MAX           9           /* head sql_level; Radioddity S1–S9 */
+#define BOARD_MIC_MAX           20          /* head mic_gain; Radioddity 0–20 */
+#define BOARD_RIT_MAX           512         /* head 10-bit ritval −512…511; UX ±500 Hz */
+#define BOARD_HF_MIN_HZ         500000      /* Radioddity RX 0.5–30 MHz */
+#define BOARD_HF_MAX_HZ         30000000
+/* Still X6100 UI scale until SoT is wired (RFG / XIT / NB max) */
+#define BOARD_RFG_MAX           100
+#define BOARD_XIT_MAX           1500
+#define BOARD_NB_MAX            100
+#define BOARD_SQL_STEP          1
+#define BOARD_RFG_STEP          1
+#define BOARD_RIT_STEP          10
+#define BOARD_XIT_STEP          10
+#define BOARD_NB_LEVEL_STEP     1           /* Xiegu cheat sheet NB Level/Width 0–10 */
+#define BOARD_NB_WIDTH_STEP     1
+#define BOARD_NR_LEVEL_STEP     5
+#define BOARD_MONI_STEP         1
+#define BOARD_KEY_SPEED_STEP    1
+#define BOARD_KEY_TONE_STEP     10
+#define BOARD_KEY_VOL_STEP      1
+#define BOARD_QSK_TIME_STEP     10
+#define BOARD_KEY_RATIO_STEP    0.1f
+#define BOARD_CW_DECODER_SNR_STEP 0.1f
+#define BOARD_CW_PEAK_Q_STEP    1
+#define BOARD_DNF_CENTER_STEP   50
+#define BOARD_DNF_WIDTH_STEP    5
+#define BOARD_WF_REF_STEP       1
+#define BOARD_FILTER_LOW_STEP   10
+#define BOARD_FILTER_BW_STEP    20
+#else /* X6100 */
+#define BOARD_PWR_MIN           0.1f
+#define BOARD_PWR_MAX           10.0f
+#define BOARD_PWR_STEP          0.1f
+#define BOARD_PWR_LABEL_FMT     "%0.1f"
+#define BOARD_SQL_MAX           100
+#define BOARD_RFG_MAX           100
+#define BOARD_RIT_MAX           1500
+#define BOARD_XIT_MAX           1500
+#define BOARD_MIC_MAX           50
+#define BOARD_NB_MAX            100
+#define BOARD_HF_MIN_HZ         100000      /* upstream f6c97fa */
+#define BOARD_HF_MAX_HZ         55000000
+#define BOARD_SQL_STEP          1
+#define BOARD_RFG_STEP          1
+#define BOARD_RIT_STEP          10
+#define BOARD_XIT_STEP          10
+#define BOARD_NB_LEVEL_STEP     5
+#define BOARD_NB_WIDTH_STEP     5
+#define BOARD_NR_LEVEL_STEP     5
+#define BOARD_MONI_STEP         1
+#define BOARD_KEY_SPEED_STEP    1
+#define BOARD_KEY_TONE_STEP     10
+#define BOARD_KEY_VOL_STEP      1
+#define BOARD_QSK_TIME_STEP     10
+#define BOARD_KEY_RATIO_STEP    0.1f
+#define BOARD_CW_DECODER_SNR_STEP 0.1f
+#define BOARD_CW_PEAK_Q_STEP    1
+#define BOARD_DNF_CENTER_STEP   50
+#define BOARD_DNF_WIDTH_STEP    5
+#define BOARD_WF_REF_STEP       1
+#define BOARD_FILTER_LOW_STEP   10
+#define BOARD_FILTER_BW_STEP    20
 #endif
-
-/* The rest of the radio's ranges. The same on the X6100 and the X6200; the settings manager reads them. */
-#define BOARD_PWR_MIN       0.1f        /* PWR and the external tuner's TUNE power */
-#define BOARD_SQL_MAX       100
-#define BOARD_RFG_MAX       100
-#define BOARD_RIT_MAX       1500
-#define BOARD_XIT_MAX       1500
-#define BOARD_MIC_MAX       50
-#define BOARD_NB_MAX        100
-#define BOARD_HF_MIN_HZ     100000      /* upstream f6c97fa */
-#define BOARD_HF_MAX_HZ     55000000
-
-/* Knob / encoder steps: the knob tables in radio_controls.cpp read these, and the PWR and TUNE power settings round
- * to BOARD_PWR_STEP. Same on the X6100 and the X6200 today. The settings keep PWR and TUNE power in tenths of a watt,
- * so BOARD_PWR_STEP is 0.1 or a multiple of it; the browser panel, Settings' TUNE power slider, the WLK/dig PWR
- * buttons and CAT have steps of their own. */
-#define BOARD_PWR_STEP              0.1f
-#define BOARD_PWR_LABEL_FMT         "%0.1f"
-#define BOARD_SQL_STEP              1
-#define BOARD_RFG_STEP              1
-#define BOARD_RIT_STEP              10
-#define BOARD_XIT_STEP              10
-#define BOARD_NB_LEVEL_STEP         5
-#define BOARD_NB_WIDTH_STEP         5
-#define BOARD_NR_LEVEL_STEP         5
-#define BOARD_MONI_STEP             1
-#define BOARD_KEY_SPEED_STEP        1
-#define BOARD_KEY_TONE_STEP         10
-#define BOARD_KEY_VOL_STEP          1
-#define BOARD_QSK_TIME_STEP         10
-#define BOARD_KEY_RATIO_STEP        0.1f
-#define BOARD_CW_DECODER_SNR_STEP   0.1f
-#define BOARD_CW_PEAK_Q_STEP        1
-#define BOARD_DNF_CENTER_STEP       50
-#define BOARD_DNF_WIDTH_STEP        5
-#define BOARD_WF_REF_STEP           1
-#define BOARD_FILTER_LOW_STEP       10
-#define BOARD_FILTER_BW_STEP        20
 
 /* The low-battery power-off (bat_watch.c), the battery's voltage in 0.1 V: from there "Low battery! Turning off in
  * 30s.", then the charger set back On, the save and the radio off. The X6100 runs to 6.0 V, as it always did. The
@@ -146,37 +202,60 @@
 #define BOARD_NAME_LOWER    "x6100"
 #else
 
-/* The input devices (gui_main.c reads them, remote_server.c writes the browser's keys into them) */
-#define BOARD_DEV_KEYPAD    "/dev/input/event0"     /* the front keys, a matrix keypad */
-#define BOARD_DEV_MAIN      "/dev/input/event1"     /* the main knob */
-#define BOARD_DEV_VOL       "/dev/input/event2"
-#define BOARD_DEV_MFK       "/dev/input/event3"
-#ifdef BOARD_X6200
+#ifdef BOARD_GSOC
+/* GSOC panel: LM8323 + GT911 via board_input_open() (BOARD_INPUT_CUSTOM). No X6100
+ * event nodes. CS4271 (card GSOC-Sound-Card): kernel cs4271.c "Master Playback Volume";
+ * capture is switch-only (no dB selem). SoC RTC is rtc0 on the A20. */
+#define BOARD_NAME          "GSOC"
+#define BOARD_NAME_LOWER    "gsoc"
+#define BOARD_DEV_KEYPAD    NULL
+#define BOARD_DEV_MAIN      NULL
+#define BOARD_DEV_VOL       NULL
+#define BOARD_DEV_MFK       NULL
+#define BOARD_DEV_POWER     NULL
+#define BOARD_PA_SINK       "alsa_output.platform-sound.stereo-fallback"
+#define BOARD_PA_SOURCE     "alsa_input.platform-sound.stereo-fallback"
+#define BOARD_MIXER_PLAY    "Master"
+#define BOARD_MIXER_REC     NULL
+#define BOARD_CAT_DEV       "/dev/ttyS2"
+#define BOARD_RTC_DEV       "/dev/rtc0"
+#elif defined(BOARD_X6200)
 #define BOARD_NAME          "X6200"
 #define BOARD_NAME_LOWER    "x6200"                 /* the default network name, what WSJT-X's protocol is told */
+#define BOARD_DEV_KEYPAD    "/dev/input/event0"
+#define BOARD_DEV_MAIN      "/dev/input/event1"
+#define BOARD_DEV_VOL       "/dev/input/event2"
+#define BOARD_DEV_MFK       "/dev/input/event3"
 #define BOARD_DEV_MFK_INNER "/dev/input/event4"     /* the inner ring of the MFK knob: what the MFK controls */
 #define BOARD_DEV_POWER     NULL                    /* the base reports the POWER key in its packets */
-#else
-#define BOARD_NAME          "X6100"
-#define BOARD_NAME_LOWER    "x6100"
-#define BOARD_DEV_POWER     "/dev/input/event4"     /* the PMIC's key: the matrix keypad drops KEY_POWER */
-#endif
-
-/* PulseAudio's names for the codec, and its ALSA mixer elements for the play and record levels */
 #define BOARD_PA_SINK       "alsa_output.platform-sound.stereo-fallback"
 #define BOARD_PA_SOURCE     "alsa_input.platform-sound.stereo-fallback"
 #define BOARD_MIXER_PLAY    "AIF1 DA0"
 #define BOARD_MIXER_REC     "ADC"
+#define BOARD_CAT_DEV       "/dev/ttyS2"
+#define BOARD_RTC_DEV       "/dev/rtc1"
+#else
+/* X6100 panel */
+#define BOARD_NAME          "X6100"
+#define BOARD_NAME_LOWER    "x6100"
+#define BOARD_DEV_KEYPAD    "/dev/input/event0"     /* the front keys, a matrix keypad */
+#define BOARD_DEV_MAIN      "/dev/input/event1"     /* the main knob */
+#define BOARD_DEV_VOL       "/dev/input/event2"
+#define BOARD_DEV_MFK       "/dev/input/event3"
+#define BOARD_DEV_POWER     "/dev/input/event4"     /* the PMIC's key: the matrix keypad drops KEY_POWER */
+#define BOARD_PA_SINK       "alsa_output.platform-sound.stereo-fallback"
+#define BOARD_PA_SOURCE     "alsa_input.platform-sound.stereo-fallback"
+#define BOARD_MIXER_PLAY    "AIF1 DA0"
+#define BOARD_MIXER_REC     "ADC"
+#define BOARD_CAT_DEV       "/dev/ttyS2"
+#define BOARD_RTC_DEV       "/dev/rtc1"
+#endif
 
 /* The user's data: the settings database, logs, macros, recordings, themes. The radio's data
  * partition; a desktop build passes its own directory (-DBOARD_DATA='"..."') */
 #ifndef BOARD_DATA
 #define BOARD_DATA          "/mnt"
 #endif
-
-/* The CAT serial port behind the USB bridge, the clock chip */
-#define BOARD_CAT_DEV       "/dev/ttyS2"
-#define BOARD_RTC_DEV       "/dev/rtc1"
 #endif
 
 /* What the image ships read-only: the default settings, icons, the country list, the bundled
