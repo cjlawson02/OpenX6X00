@@ -12,9 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef __ARM_NEON
+#include <arm_neon.h>
+#endif
 
-#define BOARD_DISP_W 1024
-#define BOARD_DISP_H 600
+#include "board.h"                 /* the panel of the board built for (BOARD_DEFS in the script) */
 #define WIDTH       BOARD_DISP_W
 #define MAX_HEIGHT  BOARD_DISP_H
 #define ROW_BINS    2048
@@ -103,7 +105,7 @@ int main(int argc, char **argv) {
     int bench = argc > 2;
     rows = calloc(MAX_HEIGHT + 1, sizeof(*rows));
     for (int i = 0; i < 256; i++) wf_palette[i] = 0xff000000u | (i * 0x010203u);
-    int hs[] = {372, 300, 599, 301, 120};
+    int hs[] = {MAX_HEIGHT * 62 / 100, MAX_HEIGHT / 2, MAX_HEIGHT - 1, MAX_HEIGHT / 2 + 1, MAX_HEIGHT / 5};
     int pics = 0;
     for (int hi = 0; hi < 5; hi++)
     for (int mono = 0; mono < 2; mono++)
@@ -114,14 +116,14 @@ int main(int argc, char **argv) {
         cfg[cfg_wf_3d_peak] = mono ? 1 : colors & 1; cfg[cfg_wf_3d_colors] = colors; cfg[cfg_wf_3d_range] = 40 + hi * 10;
         make_rows(height, 4 + hi * 6);
         static uint32_t dst_a[WIDTH * MAX_HEIGHT], dst_b[WIDTH * MAX_HEIGHT];
-        int32_t ref_x[3] = {100, 512, 900};
-        d3_vanish = hi == 2 ? 300 : WIDTH / 2;
+        int32_t ref_x[3] = {WIDTH / 10, WIDTH / 2, WIDTH * 88 / 100};
+        d3_vanish = hi == 2 ? WIDTH * 3 / 10 : WIDTH / 2;
         /* a sequence: full, same scene again (dirty-column restore), new rows, moved reference lines, a changed
          * target buffer (2D drew in it) */
         for (int step = 0; step < 8; step++) {
             uint32_t *dst = (step & 1) ? dst_b : dst_a;
             if (step == 3) { for (int i = 0; i < 5; i++) { newest = (newest + 1) % (height + 1); rows[newest].num = rows[(newest + height) % (height + 1)].num + 1; for (int k = 0; k < ROW_BINS; k++) rows[newest].values[k] = 20 + rnd() % 60 + ((k % 97) < 3 ? 150 : 0); } }
-            if (step == 5) ref_x[1] = 400;
+            if (step == 5) ref_x[1] = WIDTH * 4 / 10;
             if (step == 6) d3_drawn_buf = NULL;
             fake_ms += 33;
             memset(dst, 0x5a, sizeof(uint32_t) * WIDTH * height);   /* what was in the buffer before is not kept */
@@ -137,10 +139,10 @@ int main(int argc, char **argv) {
         fprintf(out, "h%d mono%d col%d portrait %016llx\n", height, mono, colors, (unsigned long long) fnv(pb, sizeof(uint32_t) * WIDTH * height));
     }
     if (bench) {
-        height = 372; theme_shape.mono = 0; cfg[cfg_wf_3d_tilt] = 3; cfg[cfg_wf_3d_depth] = 120; cfg[cfg_wf_3d_range] = 60;
+        height = MAX_HEIGHT * 62 / 100; theme_shape.mono = 0; cfg[cfg_wf_3d_tilt] = 3; cfg[cfg_wf_3d_depth] = 120; cfg[cfg_wf_3d_range] = 60;
         cfg[cfg_wf_3d_colors] = 0; cfg[cfg_wf_3d_peak] = 1;
-        make_rows(372, 20);
-        static uint32_t dst[WIDTH * MAX_HEIGHT]; int32_t ref_x[3] = {100, 512, 900};
+        make_rows(height, 20);
+        static uint32_t dst[WIDTH * MAX_HEIGHT]; int32_t ref_x[3] = {WIDTH / 10, WIDTH / 2, WIDTH * 88 / 100};
         double best = 1e9, all[30];
         for (int i = 0; i < 30; i++) {
             struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a);
@@ -149,7 +151,7 @@ int main(int argc, char **argv) {
             all[i] = (b.tv_sec - a.tv_sec) * 1e3 + (b.tv_nsec - a.tv_nsec) / 1e6; if (all[i] < best) best = all[i];
         }
         for (int i = 0; i < 30; i++) for (int j = i + 1; j < 30; j++) if (all[j] < all[i]) { double t = all[i]; all[i] = all[j]; all[j] = t; }
-        printf("d3_render landscape 1024x372: min %.2f ms  median %.2f ms\n", all[0], all[15]);
+        printf("d3_render landscape %dx%d: min %.2f ms  median %.2f ms\n", WIDTH, height, all[0], all[15]);
     }
     fclose(out);
     fprintf(stderr, "%d landscape pictures\n", pics);
