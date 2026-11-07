@@ -12,6 +12,7 @@
 
 #include "spectrum_view.h"
 
+#include "board.h"
 #include "cfg/cfg_api.h"
 #include "filter_shade.h"
 #include "navtex_window.h"
@@ -86,7 +87,13 @@ static bool             vfo_line_on = true;
 /* Direct mode (DRM planes, spectrum shown): the trace is drawn on the primary plane
  * under the GUI, like the waterfall, and LVGL draws only the markers over it, again
  * when they change. strip is the portrait image of the spectrum: landscape x is its
- * row 799 - x, landscape y (from the top) its column y */
+ * row 799 - x, landscape y (from the top) its column y. A landscape panel
+ * (BOARD_FB_ROTATE_90=0) keeps plain rows: (x, y) is strip[y * POINTS + x] */
+#if BOARD_FB_ROTATE_90
+#define STRIP_AT(x, y, h)   (&strip[(POINTS - 1 - (x)) * (h) + (y)])
+#else
+#define STRIP_AT(x, y, h)   (&strip[(y) * POINTS + (x)])
+#endif
 static bool             direct;
 static uint32_t        *strip;
 static int32_t          strip_h;
@@ -528,7 +535,7 @@ static void plot(int x, int y, float c, uint32_t color) {
     if (x < 0 || x >= POINTS || y < 0 || y >= strip_h || c <= 0.0f) {
         return;
     }
-    uint32_t *p = &strip[(POINTS - 1 - x) * strip_h + y];
+    uint32_t *p = STRIP_AT(x, y, strip_h);
 
     *p = blend_xrgb(*p, color, c >= 1.0f ? 255 : (uint8_t)(c * 255.0f + 0.5f));
 }
@@ -645,15 +652,20 @@ static void fill_columns(float min, float max, lv_coord_t shift) {
             continue;
         }
         int       top = (1.0f - (trace_db[i] - min) / (max - min)) * h;
-        uint32_t *col = &strip[(POINTS - 1 - x) * h];
 
         top = LV_MAX(top, 0);
         if (lvl) {
-            if (top < h) memcpy(&col[top], &level_tab[top], (h - top) * sizeof(uint32_t));
+#if BOARD_FB_ROTATE_90
+            if (top < h) memcpy(STRIP_AT(x, top, h), &level_tab[top], (h - top) * sizeof(uint32_t));
+#else
+            for (int y = top; y < h; y++) {
+                *STRIP_AT(x, y, h) = level_tab[y];
+            }
+#endif
             continue;
         }
         for (int y = top; y < h; y++) {
-            col[y] = grad ? lv_color_mix(fc, pc, (h - y) * 255 / (h - top)).full | 0xff000000u : flat;
+            *STRIP_AT(x, y, h) = grad ? lv_color_mix(fc, pc, (h - y) * 255 / (h - top)).full | 0xff000000u : flat;
         }
     }
 }
