@@ -24,7 +24,7 @@
 #define NAME_X      30
 #define NAME_W      340
 #define VALUE_X     (NAME_X + NAME_W + 10)
-#define VALUE_W     (796 - VALUE_X - 20)
+#define VALUE_W     (DIALOG_W - VALUE_X - 20)
 
 enum { R_SATS, R_FIX, R_TIME, R_LAT, R_LON, R_GRID, R_STATUS };
 
