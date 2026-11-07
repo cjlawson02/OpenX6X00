@@ -13,6 +13,7 @@
 
 #include "lcd_panel.h"
 
+#include "board.h"
 #include "cfg/cfg_api.h"
 #include "clock.h"
 #include "cw_tune_view.h"
@@ -682,6 +683,22 @@ void lcd_panel_levels(float *min, float *max) {
 
 void lcd_panel_squeeze(uint32_t *strip, int h, int points, int w, uint32_t bg) {
     if (w <= 0 || w >= points) return;
+#if !BOARD_FB_ROTATE_90
+    /* landscape rows (strip[y * points + x]): the same per row, in place, left to right */
+    for (int y = 0; y < h; y++) {
+        uint32_t *row = &strip[y * points];
+
+        for (int x = 0; x < w; x++) {
+            int       a = x * points / w, b = LV_MAX((x + 1) * points / w, a + 1);
+            uint32_t  v = bg;
+
+            for (int c = a; c < b && v == bg; c++) v = row[c];
+            row[x] = v;
+        }
+        for (int x = w; x < points; x++) row[x] = bg;
+    }
+    return;
+#endif
     /* each column x takes the columns x * points / w up to the next: in place, left to right (they
      * are never left of x), a pixel the first of them that is not bg, so the trace stays joined */
     for (int x = 0; x < w; x++) {

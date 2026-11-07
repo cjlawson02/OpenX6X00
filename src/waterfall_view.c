@@ -88,8 +88,18 @@ static uint8_t       refresh_count;
 /* Direct mode (DRM planes): the waterfall is drawn on the primary plane under
  * the GUI, which is transparent there. wfp is its portrait image: landscape
  * row y of the waterfall is portrait column y, landscape x is row 799 - x.
+ * A landscape panel (BOARD_FB_ROTATE_90=0) keeps wfp as plain rows instead:
+ * landscape (x, y) is wfp[y * WIDTH + x], and the ring is of rows (row y of the
+ * waterfall at wfp row (wfp_head + y) % height).
  * A new row shifts the image by one column and draws only that column; a new
  * centre or zoom redraws it all */
+#if BOARD_FB_ROTATE_90
+#define WFP_PORTRAIT    true
+#define WFP_AT(buf, x, y, h)    (&(buf)[(WIDTH - 1 - (x)) * (h) + (y)])
+#else
+#define WFP_PORTRAIT    false
+#define WFP_AT(buf, x, y, h)    (&(buf)[(y) * WIDTH + (x)])
+#endif
 static bool             direct = false;
 static uint32_t         *wfp;
 static int32_t          wfp_head;   /* each portrait row of wfp is a ring: the newest column is at wfp_head */
@@ -421,7 +431,7 @@ static void direct_column(int32_t age, uint32_t span, size_t i0, size_t i1) {
 
     row_pixels(row, wfp_center, span, i0, i1, px);
     for (size_t i = i0; i < i1; i++) {
-        wfp[(WIDTH - 1 - i) * height + (wfp_head + age) % height] = wf_pixel(px[i], i + dither_x, row) | 0xff000000;
+        *WFP_AT(wfp, i, (wfp_head + age) % height, height) = wf_pixel(px[i], i + dither_x, row) | 0xff000000;
     }
 }
 
@@ -498,6 +508,25 @@ static void direct_redraw(int new_row) {
             /* Landscape pixel i now shows the old i + px: portrait row R the old R - px */
             wfp_center += (int64_t) px * bandwidth / WIDTH;
             dither_x += px;
+#if !BOARD_FB_ROTATE_90
+            /* Row by row: landscape pixel i is the old i + px */
+            for (int32_t r = 0; r < height; r++) {
+                uint32_t *line = wfp + r * WIDTH;
+
+                if (px > 0) {
+                    memmove(line, line + px, (WIDTH - px) * sizeof(uint32_t));
+                } else {
+                    memmove(line - px, line, (WIDTH + px) * sizeof(uint32_t));
+                }
+            }
+            if (px > 0) {
+                i0 = WIDTH - px;
+                i1 = WIDTH;
+            } else {
+                i0 = 0;
+                i1 = -px;
+            }
+#else
             if (px > 0) {
                 memmove(wfp + px * height, wfp, (WIDTH - px) * height * sizeof(uint32_t));
                 i0 = WIDTH - px;
@@ -507,6 +536,7 @@ static void direct_redraw(int new_row) {
                 i0 = 0;
                 i1 = -px;
             }
+#endif
             for (int32_t col = 0; col < height; col++) {
                 direct_column(col, bandwidth, i0, i1);
             }
@@ -516,6 +546,12 @@ static void direct_redraw(int new_row) {
     }
     lv_obj_get_coords(obj, &a);
 #if USE_DRM
+#if !BOARD_FB_ROTATE_90
+    if (!full && !px) {
+        drm_wf_scroll(wfp, a.y1, height, wfp_head, new_row);     /* only the new rows changed */
+        return;
+    }
+#endif
     drm_wf_present_ring(wfp, a.y1, height, wfp_head);
 #endif
 }
@@ -1303,7 +1339,7 @@ static void d3_redraw(void) {
     if (direct) {
         lv_area_t a;
 
-        d3_render(wfp, true, ref_x, n);
+        d3_render(wfp, WFP_PORTRAIT, ref_x, n);
         wfp_head = 0;
         lv_obj_get_coords(obj, &a);
 #if USE_DRM

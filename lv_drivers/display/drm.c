@@ -16,6 +16,12 @@
  *
  * Without a usable overlay plane the GUI goes on the primary plane alone and
  * drm_planes() is false: the waterfall stays an LVGL image.
+ *
+ * A landscape panel (BOARD_FB_ROTATE_90=0) has no rotation: GUI areas are copied
+ * as they are, and the strips, which the views keep as landscape rows (see
+ * drm_wf_present in drm.h), are copied as rows. There each strip gets an overlay plane
+ * of its own between the primary and the GUI when the CRTC has them (splane_t): a
+ * whole picture is one copy, a waterfall row two rows and a SRC_Y move.
  */
 
 /*********************
@@ -185,6 +191,12 @@ static uint32_t prop_id(drmModeObjectProperties *props, const char *name) {
     return 0;
 }
 
+static bool plane_taken(uint32_t id, uint32_t skip);
+#if !BOARD_FB_ROTATE_90
+static void splanes_init(void);
+static void splanes_off(void);
+#endif
+
 /* The first plane of this type on our CRTC that takes the format */
 static bool find_plane(plane_t *pl, uint64_t type, uint32_t fourcc, uint32_t skip) {
     drmModePlaneRes *res = drmModeGetPlaneResources(fd);
@@ -205,7 +217,7 @@ static bool find_plane(plane_t *pl, uint64_t type, uint32_t fourcc, uint32_t ski
             fmt |= p->formats[f] == fourcc;
         }
         props = drmModeObjectGetProperties(fd, p->plane_id, DRM_MODE_OBJECT_PLANE);
-        if (props && fmt && p->plane_id != skip && (p->possible_crtcs & (1 << crtc_idx))) {
+        if (props && fmt && !plane_taken(p->plane_id, skip) && (p->possible_crtcs & (1 << crtc_idx))) {
             uint32_t t = prop_id(props, "type");
 
             for (uint32_t j = 0; j < props->count_props; j++) {
@@ -232,8 +244,8 @@ static bool find_plane(plane_t *pl, uint64_t type, uint32_t fourcc, uint32_t ski
     return ok;
 }
 
-static bool alloc_buf(struct drm_buffer *buf, uint32_t fourcc) {
-    struct drm_mode_create_dumb creq = { .width = PANEL_W, .height = PANEL_H, .bpp = 32 };
+static bool alloc_buf_h(struct drm_buffer *buf, uint32_t fourcc, uint32_t h) {
+    struct drm_mode_create_dumb creq = { .width = PANEL_W, .height = h, .bpp = 32 };
     struct drm_mode_map_dumb    mreq = { 0 };
     uint32_t                    handles[4] = { 0 }, pitches[4] = { 0 }, offsets[4] = { 0 };
 
@@ -261,11 +273,15 @@ static bool alloc_buf(struct drm_buffer *buf, uint32_t fourcc) {
     /* The byte order of lv_color32_t (B, G, R, A) */
     handles[0] = buf->handle;
     pitches[0] = buf->pitch;
-    if (drmModeAddFB2(fd, PANEL_W, PANEL_H, fourcc, handles, pitches, offsets, &buf->fb_id, 0)) {
+    if (drmModeAddFB2(fd, PANEL_W, h, fourcc, handles, pitches, offsets, &buf->fb_id, 0)) {
         err("add fb: %s", strerror(errno));
         return false;
     }
     return true;
+}
+
+static bool alloc_buf(struct drm_buffer *buf, uint32_t fourcc) {
+    return alloc_buf_h(buf, fourcc, PANEL_H);
 }
 
 static bool alloc_plane(plane_t *pl, uint32_t fourcc) {
@@ -443,13 +459,6 @@ static int first_commit(void) {
  **********************/
 
 bool drm_init(void) {
-    /* Landscape blit (BOARD_FB_ROTATE_90=0) is only finished for fbdev: the
-     * primary-plane waterfall and Walkie's portrait path still assume a
-     * portrait panel. Fall back so panel_open() uses fbdev instead. */
-#if !BOARD_FB_ROTATE_90
-    err("BOARD_FB_ROTATE_90=0 needs fbdev, DRM is unused");
-    return false;
-#else
     const char *path = getenv("DRM_CARD");
 
     if (path ? !open_card(path) : !open_card("/dev/dri/card0") && !open_card("/dev/dri/card1")) {
@@ -479,6 +488,11 @@ bool drm_init(void) {
         return false;
     }
     gui = planes ? &overlay : &primary;
+#if !BOARD_FB_ROTATE_90
+    if (planes) {
+        splanes_init();
+    }
+#endif
 
     /* Both buffers are empty: the first two frames copy the whole screen */
     frame[0].full = true;
@@ -487,7 +501,6 @@ bool drm_init(void) {
     fprintf(stderr, "drm: %ux%u, connector %u, crtc %u, %s\n", mode.hdisplay, mode.vdisplay, conn_id, crtc_id,
             planes ? "GUI on the overlay plane, waterfall on the primary" : "one plane");
     return true;
-#endif /* BOARD_FB_ROTATE_90 */
 }
 
 bool drm_planes(void) {
@@ -498,6 +511,11 @@ void drm_set_portrait(bool on) {
     portrait_mode = on;
     frame[0].full = true;       /* both buffers get the whole GUI again */
     frame[1].full = true;
+#if !BOARD_FB_ROTATE_90
+    if (on) {
+        splanes_off();          /* no strips in portrait */
+    }
+#endif
 }
 
 void drm_flush(lv_disp_drv_t * drv, const lv_area_t * area, lv_color_t * color_p) {
@@ -553,19 +571,169 @@ static struct {
 } strips[MAX_STRIPS];
 static int nstrips;
 
+/* A strip of wf_shadow into buf: panel columns x .. x + w - 1 (portrait panel),
+ * panel rows (landscape) */
 static void copy_cols(struct drm_buffer *buf, int32_t x, int32_t w) {
+#if BOARD_FB_ROTATE_90
     for (int32_t y = 0; y < PANEL_H; y++) {
         memcpy(buf->map + y * buf->pitch + x * 4, wf_shadow + y * PANEL_W + x, w * 4);
     }
+#else
+    for (int32_t y = x; y < x + w; y++) {
+        memcpy(buf->map + y * buf->pitch, wf_shadow + y * PANEL_W, PANEL_W * 4);
+    }
+#endif
 }
+
+#if !BOARD_FB_ROTATE_90
+/* Landscape: each strip on an overlay plane of its own, opaque, between the primary and
+ * the GUI (when the CRTC has them free: splanes_init). Two buffers of 2 x PANEL_H rows
+ * each. A whole picture goes into the buffer not on screen, rows 0 .. w - 1 in screen
+ * order: one copy, no tearing. A ring turn writes only the new rows, each twice (rows c
+ * and c + w of the buffer), and the plane's SRC_Y moves to the newest: the plane shows
+ * rows win .. win + w - 1, and buffer row c (and c + w) holds src row (c + base) % w.
+ * Before, every turn copied the whole strip three times (wf_shadow, then each buffer). */
+#define MAX_SPLANES 2
+typedef struct {
+    plane_t     pl;         /* back: the buffer shown at the next commit; ready: to commit */
+    uint32_t    p_zpos;
+    int32_t     x, w;       /* panel rows x .. x + w - 1; w 0: free */
+    int32_t     base, win;
+    int         shown;      /* the buffer on screen */
+    bool        valid;      /* holds the strip's picture: a ring turn may move win */
+    bool        both;       /* rows w .. 2w - 1 hold it too */
+    bool        on;         /* enabled (or to be, at the next commit) */
+    bool        setup;      /* the next commit places it (position, size, zpos) */
+} splane_t;
+static splane_t splanes[MAX_SPLANES];
+static int      nsplanes;
+static bool     splanes_bad;    /* a commit placing them failed: strips on the primary plane again */
+
+/* n rows of src (PANEL_W pixels each) into buf from row y */
+static void copy_rows(struct drm_buffer *buf, int32_t y, const uint32_t *src, int32_t n) {
+    for (int32_t i = 0; i < n; i++) {
+        memcpy(buf->map + (size_t) (y + i) * buf->pitch, src + (size_t) i * PANEL_W, PANEL_W * 4);
+    }
+}
+
+/* The plane of strip x, w: its own, else the one it overlaps (it moved or changed
+ * height), else a free one; NULL: none, the strip goes on the primary plane */
+static splane_t * splane_for(int32_t x, int32_t w) {
+    splane_t *s = NULL;
+
+    if (splanes_bad) {
+        return NULL;
+    }
+    for (int i = 0; i < nsplanes; i++) {
+        if (splanes[i].w && splanes[i].x == x && splanes[i].w == w) {
+            return &splanes[i];
+        }
+    }
+    for (int i = 0; i < nsplanes; i++) {
+        splane_t *o = &splanes[i];
+
+        if (o->w && o->x < x + w && x < o->x + o->w) {
+            if (!s) {
+                s = o;
+            } else {
+                o->w = 0;           /* a second one under the new strip: off */
+                o->on = false;
+                o->pl.ready = true;
+            }
+        }
+    }
+    for (int i = 0; i < nsplanes && !s; i++) {
+        if (!splanes[i].w) {
+            s = &splanes[i];
+        }
+    }
+    if (s && (s->x != x || s->w != w)) {
+        s->x = x;
+        s->w = w;
+        s->valid = false;
+        s->setup = true;
+    }
+    return s;
+}
+
+static void splane_full(splane_t *s, const uint32_t *src, int32_t head) {
+    struct drm_buffer *buf;
+
+    wait_flip();
+    s->pl.back = s->shown ^ 1;
+    buf = &s->pl.bufs[s->pl.back];
+    copy_rows(buf, 0, src + (size_t) head * PANEL_W, s->w - head);
+    copy_rows(buf, s->w - head, src, head);
+    s->base = head;
+    s->win = 0;
+    s->valid = true;
+    s->both = false;
+    if (!s->on) {
+        s->on = true;
+        s->setup = true;
+    }
+    s->pl.ready = true;
+}
+
+/* Rows head .. head + n - 1 (mod w) of src are new, the others as presented before */
+static void splane_turn(splane_t *s, const uint32_t *src, int32_t head, int32_t n) {
+    int32_t             w = s->w;
+    struct drm_buffer   *buf;
+
+    wait_flip();
+    buf = &s->pl.bufs[s->pl.back];
+    if (!s->both) {
+        /* The second copy: off screen, win is 0 since the whole picture */
+        copy_rows(buf, w, src + (size_t) s->base * PANEL_W, w - s->base);
+        copy_rows(buf, 2 * w - s->base, src, s->base);
+        s->both = true;
+    }
+    /* On screen already, the copy that replaces one of the oldest rows (the bottom one)
+     * shows the new row there until the commit: n rows, one frame at most */
+    for (int32_t i = 0; i < n; i++) {
+        int32_t r = (head + i) % w;
+        int32_t c = (r - s->base + w) % w;
+
+        copy_rows(buf, c, src + (size_t) r * PANEL_W, 1);
+        copy_rows(buf, c + w, src + (size_t) r * PANEL_W, 1);
+    }
+    s->win = (head - s->base + w) % w;
+    s->pl.ready = true;
+}
+
+void drm_wf_scroll(const uint32_t *src, int32_t x, int32_t w, int32_t head, int32_t n) {
+    splane_t *s;
+
+    if (!planes || portrait_mode || x < 0 || w <= 0 || x + w > LAND_H) {
+        return;
+    }
+    s = splane_for(x, w);
+    if (!s) {
+        drm_wf_present_ring(src, x, w, head);
+    } else if (!s->valid || n <= 0 || n >= w) {
+        splane_full(s, src, head);
+    } else {
+        splane_turn(s, src, head, n);
+    }
+}
+#endif
 
 void drm_wf_present_ring(const uint32_t *src, int32_t x, int32_t w, int32_t head) {
     int i, b;
 
     /* Portrait: no waterfall on the screen, the primary plane stays black */
-    if (!planes || portrait_mode || x < 0 || w <= 0 || x + w > PANEL_W) {
+    if (!planes || portrait_mode || x < 0 || w <= 0 || x + w > LAND_H) {
         return;
     }
+#if !BOARD_FB_ROTATE_90
+    splane_t *s = splane_for(x, w);
+
+    if (s) {
+        splane_full(s, src, head);
+        return;
+    }
+#endif
+#if BOARD_FB_ROTATE_90
     for (int32_t y = 0; y < PANEL_H; y++) {
         const uint32_t *s = src + y * w;
         uint32_t       *d = wf_shadow + y * PANEL_W + x;
@@ -573,6 +741,11 @@ void drm_wf_present_ring(const uint32_t *src, int32_t x, int32_t w, int32_t head
         memcpy(d, s + head, (w - head) * 4);
         memcpy(d + w - head, s, head * 4);
     }
+#else
+    /* The ring is turned on the way: rows head .. w - 1 of src first */
+    memcpy(wf_shadow + x * PANEL_W, src + head * PANEL_W, (size_t) (w - head) * PANEL_W * 4);
+    memcpy(wf_shadow + (x + w - head) * PANEL_W, src, (size_t) head * PANEL_W * 4);
+#endif
     for (i = 0; i < nstrips && strips[i].x != x; i++) {}
     if (i == nstrips) {
         if (nstrips == MAX_STRIPS) {
@@ -595,13 +768,167 @@ uint32_t drm_frame_ms(void) {
     return mode.vrefresh ? (1000 + mode.vrefresh - 1) / mode.vrefresh : 17;
 }
 
+static bool plane_taken(uint32_t id, uint32_t skip) {
+#if !BOARD_FB_ROTATE_90
+    for (int i = 0; i < nsplanes; i++) {
+        if (splanes[i].pl.id == id) {
+            return true;
+        }
+    }
+#endif
+    return id == skip;
+}
+
+#if !BOARD_FB_ROTATE_90
+static uint32_t gui_zpos;       /* the GUI's zpos property: over the strip planes */
+static bool     gui_zpos_set;
+
+static uint32_t plane_prop(uint32_t id, const char *name) {
+    drmModeObjectProperties *props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_PLANE);
+    uint32_t                p = props ? prop_id(props, name) : 0;
+
+    drmModeFreeObjectProperties(props);
+    return p;
+}
+
+/* The overlay planes left on our CRTC for the strips, with their buffers; none and the strips
+ * go on the primary plane as before */
+static void splanes_init(void) {
+    gui_zpos = plane_prop(overlay.id, "zpos");
+    while (gui_zpos && nsplanes < MAX_SPLANES) {
+        splane_t *s = &splanes[nsplanes];
+
+        if (!find_plane(&s->pl, DRM_PLANE_TYPE_OVERLAY, DRM_FORMAT_XRGB8888, overlay.id) ||
+            !(s->p_zpos = plane_prop(s->pl.id, "zpos")) ||
+            !alloc_buf_h(&s->pl.bufs[0], DRM_FORMAT_XRGB8888, 2 * PANEL_H) ||
+            !alloc_buf_h(&s->pl.bufs[1], DRM_FORMAT_XRGB8888, 2 * PANEL_H))
+        {
+            free_plane(&s->pl);
+            memset(s, 0, sizeof(*s));
+            break;
+        }
+        nsplanes++;
+    }
+    if (nsplanes) {
+        fprintf(stderr, "drm: %d strip planes (waterfall, spectrum) under the GUI\n", nsplanes);
+    }
+}
+
+/* The strips' planes off at the next commit; each back the next time its strip is presented */
+static void splanes_off(void) {
+    for (int i = 0; i < nsplanes; i++) {
+        if (splanes[i].w) {
+            splanes[i].w = 0;
+            splanes[i].on = false;
+            splanes[i].valid = false;
+            splanes[i].pl.ready = true;
+        }
+    }
+}
+
+static bool splanes_ready(void) {
+    for (int i = 0; i < nsplanes; i++) {
+        if (splanes[i].pl.ready) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Into the commit: the planes that changed. true: one of them is placed (a commit that can fail on it) */
+static bool splanes_add(drmModeAtomicReq *req) {
+    bool placed = false;
+
+    for (int i = 0; i < nsplanes; i++) {
+        splane_t *s = &splanes[i];
+        plane_t  *p = &s->pl;
+
+        if (!p->ready) {
+            continue;
+        }
+        if (!s->on) {
+            add_prop(req, p->id, p->p_fb, 0);
+            add_prop(req, p->id, p->p_crtc, 0);
+            continue;
+        }
+        if (s->setup) {
+            add_prop(req, p->id, p->p_crtc, crtc_id);
+            add_prop(req, p->id, p->p_sx, 0);
+            add_prop(req, p->id, p->p_sw, (uint64_t) PANEL_W << 16);
+            add_prop(req, p->id, p->p_sh, (uint64_t) s->w << 16);
+            add_prop(req, p->id, p->p_cx, 0);
+            add_prop(req, p->id, p->p_cy, s->x);
+            add_prop(req, p->id, p->p_cw, PANEL_W);
+            add_prop(req, p->id, p->p_ch, s->w);
+            add_prop(req, p->id, s->p_zpos, 1 + i);
+            placed = true;
+        }
+        add_prop(req, p->id, p->p_fb, p->bufs[p->back].fb_id);
+        add_prop(req, p->id, p->p_sy, (uint64_t) s->win << 16);
+    }
+    if (placed && !gui_zpos_set) {
+        add_prop(req, overlay.id, gui_zpos, MAX_SPLANES + 1);
+    }
+    return placed;
+}
+
+static void splanes_done(bool placed) {
+    for (int i = 0; i < nsplanes; i++) {
+        splane_t *s = &splanes[i];
+
+        if (s->pl.ready) {
+            s->pl.ready = false;
+            s->shown = s->pl.back;
+            s->setup = false;
+        }
+    }
+    gui_zpos_set |= placed;
+}
+
+/* Placing them was refused: off at the next commit, and the strips on the primary plane from now on */
+static void splanes_fail(void) {
+    err("strip planes refused, strips on the primary plane");
+    splanes_bad = true;
+    for (int i = 0; i < nsplanes; i++) {
+        splanes[i].w = 0;
+        splanes[i].on = false;
+        splanes[i].setup = false;
+        splanes[i].pl.ready = true;
+    }
+}
+#endif
+
+/* Row y of what shows under the GUI: a strip plane's, else the primary plane's (wf_shadow) */
+static const uint32_t * under_row(int32_t y) {
+#if !BOARD_FB_ROTATE_90
+    for (int i = 0; i < nsplanes; i++) {
+        splane_t *s = &splanes[i];
+
+        if (s->on && s->valid && y >= s->x && y < s->x + s->w) {
+            struct drm_buffer *b = &s->pl.bufs[s->pl.back];
+
+            return (const uint32_t *) (b->map + (size_t) (s->win + y - s->x) * b->pitch);
+        }
+    }
+#endif
+    return wf_shadow + y * PANEL_W;
+}
+
 void drm_commit(void) {
     static bool failed;
     int         ret;
 
+#if !BOARD_FB_ROTATE_90
+    bool placed = false;
+
+    if (fd < 0 || !(gui->ready || (planes && primary.ready) || splanes_ready())) {
+        return;
+    }
+#else
     if (fd < 0 || !(gui->ready || (planes && primary.ready))) {
         return;
     }
+#endif
     wait_flip();
     if (planes && primary.ready) {
         for (int i = 0; i < nstrips; i++) {
@@ -624,10 +951,21 @@ void drm_commit(void) {
         if (primary.ready) {
             add_prop(req, primary.id, primary.p_fb, primary.bufs[primary.back].fb_id);
         }
+#if !BOARD_FB_ROTATE_90
+        placed = splanes_add(req);
+#endif
         /* shown at the next vblank, the event clears flip_pending */
         ret = drmModeAtomicCommit(fd, req, DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT, NULL);
         drmModeAtomicFree(req);
         flip_pending = ret == 0;
+#if !BOARD_FB_ROTATE_90
+        if (ret == 0) {
+            splanes_done(placed);
+        } else if (placed && !splanes_bad) {
+            splanes_fail();     /* the GUI and the primary plane go again at the next commit, without them */
+            return;
+        }
+#endif
     } else {
         ret = drmModePageFlip(fd, crtc_id, primary.bufs[primary.back].fb_id, DRM_MODE_PAGE_FLIP_EVENT, NULL);
         flip_pending = ret == 0;
@@ -672,7 +1010,7 @@ bool drm_dump(const char *path) {
 
         ok = true;
         for (int32_t y = 0; y < PANEL_H && ok; y++) {
-            drm_blend_under(row, shadow + y * PANEL_W, wf_shadow + y * PANEL_W, PANEL_W);
+            drm_blend_under(row, shadow + y * PANEL_W, under_row(y), PANEL_W);
             ok = fwrite(row, 4, PANEL_W, f) == PANEL_W;
         }
     } else {
@@ -717,7 +1055,7 @@ void drm_compose_landscape(uint32_t *px) {
             under[x] = wf_shadow[(LAND_W - 1 - x) * PANEL_W + y];
         }
 #else
-        memcpy(under, wf_shadow + y * PANEL_W, (size_t) LAND_W * 4);
+        memcpy(under, under_row(y), (size_t) LAND_W * 4);
 #endif
         drm_blend_under(row, row, under, LAND_W);
     }
