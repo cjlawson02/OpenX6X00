@@ -1527,6 +1527,20 @@ static void d3_redraw(void) {
         d3_again = true;            /* after the one being drawn */
         return;
     }
+    if (direct) {
+        lv_area_t c;
+
+        lv_obj_get_coords(obj, &c);
+        if (drm_wf_back_pending(c.y1, height)) {
+            /* The last picture waits for this pass's commit, in the buffer a new one would get (it tore on the
+             * screen): right after the commit */
+            if (!d3_later) {
+                d3_later = lv_timer_create(d3_later_cb, 1, NULL);
+                lv_timer_set_repeat_count(d3_later, 1);
+            }
+            return;
+        }
+    }
 #endif
     d3_last_ms = lv_tick_get();
     int n = freq_scale_refs(ref_x, ref_hz, MAX_D3_REFS);
