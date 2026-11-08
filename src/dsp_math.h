@@ -14,7 +14,62 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <vector>
+
+/* dB <-> power without powf/log10f. A spectrum is converted per bin and per frame (a few
+ * thousand calls a second), where libm costs most of a Cortex-A7's time. Both are
+ * branch-free (clamps, no loops), so the compiler vectorizes the loops that call them.
+ *   dsp_db_to_pow(db):  10^(db/10),   relative error < 8e-6  (0.00003 dB)
+ *   dsp_pow_to_db(p):   10*log10(p),  absolute error < 8e-5 dB, for p > 1.2e-38 (below: clamped)
+ * Coefficients: Chebyshev fits of log2(1 + u) on [sqrt(.5) - 1, sqrt(2) - 1] (degree 5) and
+ * of 2^f on [-.5, .5] (degree 4); the PC test checks them against powf/log10f. */
+static inline float dsp_db_to_pow(float db) {
+    float x = std::min(std::max(db * 0.33219280948873623f, -125.0f), 125.0f);   /* log2(10) / 10 */
+    float r = (x + 12582912.0f) - 12582912.0f;                  /* round to nearest (1.5 * 2^23) */
+    float f = x - r;
+    float p = 0.009666368515387469f;
+
+    p = p * f + 0.055921975842256264f;
+    p = p * f + 0.24022349038020335f;
+    p = p * f + 0.693121045203427f;
+    p = p * f + 1.0f;
+
+    int32_t bits;
+
+    std::memcpy(&bits, &p, 4);
+    bits += (int32_t)r << 23;                                   /* * 2^r */
+    std::memcpy(&p, &bits, 4);
+    return p;
+}
+
+static inline float dsp_pow_to_db(float p) {
+    int32_t bits;
+
+    p = std::max(p, 1.1754944e-38f);
+    std::memcpy(&bits, &p, 4);
+
+    int32_t e = (bits >> 23) - 127;
+    int32_t m = (bits & 0x7fffff) | 0x3f800000;                 /* mantissa in 1 .. 2 */
+    float   f;
+
+    std::memcpy(&f, &m, 4);
+    if (f > 1.41421356f) {                                      /* 0.707 .. 1.414 */
+        f *= 0.5f;
+        e++;
+    }
+    f -= 1.0f;
+
+    float l = 0.24327277823433333f;
+
+    l = l * f - 0.3936896830253101f;
+    l = l * f + 0.48822569555232936f;
+    l = l * f - 0.7202141342183704f;
+    l = l * f + 1.442517608220981f;
+    l = l * f - 6.308052795937077e-06f;
+    return 3.0102999566398120f * ((float)e + l);                /* 10 * log10(2) */
+}
 
 /* Four-term Blackman-Harris (periodic form, -92 dB sidelobes), scaled so that the
  * squares add up to 1: white noise then reads its variance in every bin, whatever
