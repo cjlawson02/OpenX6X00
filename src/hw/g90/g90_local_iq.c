@@ -32,6 +32,8 @@ static int              started;
 static int              ready;
 static int              ready_logged;
 static int              swap_iq;
+static int              use_mmap;       /* G90_IQ_MMAP=1: mmap capture, see capture_mmap() */
+static snd_pcm_uframes_t mmap_period;   /* frames per wakeup in mmap mode */
 static float            latest[G90_FUSE_BINS];
 static float            win[G90_FUSE_BINS];
 
@@ -80,6 +82,69 @@ static void publish_fft(const int32_t *interleaved, liquid_float_complex *time, 
     }
 }
 
+/* mmap capture. Only one block in FFT_EVERY is transformed, so the rest never
+ * needs to leave the DMA buffer: it is committed untouched, with no
+ * copy_to_user. The period is FFT_EVERY blocks, so there is one wakeup per FFT.
+ * The DMA buffer is uncached write-combine memory, so the one block that is
+ * used is pulled out with a single memcpy (bursts) rather than sample by
+ * sample from publish_fft(). */
+static void capture_mmap(int32_t *buf, liquid_float_complex *time, liquid_float_complex *freq, fftplan plan,
+                         float *db) {
+    if (snd_pcm_start(pcm) < 0) {
+        fprintf(stderr, "hw_g90 iq: start failed\n");
+    }
+    while (!atomic_load_explicit(&stop, memory_order_acquire)) {
+        snd_pcm_sframes_t avail = snd_pcm_avail_update(pcm);
+
+        if (avail < 0) {
+            if (snd_pcm_recover(pcm, (int)avail, 1) < 0) {
+                break;
+            }
+            snd_pcm_start(pcm);
+            continue;
+        }
+        if ((snd_pcm_uframes_t)avail < mmap_period) {
+            if (snd_pcm_wait(pcm, 200) == 0 && snd_pcm_state(pcm) != SND_PCM_STATE_RUNNING) {
+                snd_pcm_prepare(pcm);
+                snd_pcm_start(pcm);
+            }
+            continue;
+        }
+        while ((snd_pcm_uframes_t)avail >= mmap_period) {
+            const snd_pcm_channel_area_t *areas;
+            snd_pcm_uframes_t              off    = 0;
+            snd_pcm_uframes_t              frames = mmap_period;
+            snd_pcm_sframes_t              done;
+
+            if (snd_pcm_mmap_begin(pcm, &areas, &off, &frames) < 0) {
+                snd_pcm_prepare(pcm);
+                snd_pcm_start(pcm);
+                break;
+            }
+            if (frames >= G90_FUSE_BINS) {
+                /* newest block of the chunk */
+                const char *src = (const char *)areas[0].addr + areas[0].first / 8 +
+                                  (off + frames - G90_FUSE_BINS) * (areas[0].step / 8);
+
+                memcpy(buf, src, G90_FUSE_BINS * IQ_CH * sizeof(int32_t));
+                done = snd_pcm_mmap_commit(pcm, off, frames);
+                publish_fft(buf, time, freq, plan, db);
+            } else {
+                done = snd_pcm_mmap_commit(pcm, off, frames);
+            }
+            if (done < 0) {
+                snd_pcm_recover(pcm, (int)done, 1);
+                snd_pcm_start(pcm);
+                break;
+            }
+            avail -= done;
+            if (done == 0) {
+                break;
+            }
+        }
+    }
+}
+
 static void *capture_thread(void *arg) {
     int32_t               *buf  = NULL;
     liquid_float_complex *time = NULL;
@@ -101,6 +166,10 @@ static void *capture_thread(void *arg) {
     plan = fft_create_plan(G90_FUSE_BINS, time, freq, LIQUID_FFT_FORWARD, 0);
     if (!plan) {
         fprintf(stderr, "hw_g90 iq: fft plan failed\n");
+        goto done;
+    }
+    if (use_mmap) {
+        capture_mmap(buf, time, freq, plan, db);
         goto done;
     }
     /* snd_pcm_wait on a capture that is only PREPARED times out and never starts
@@ -187,7 +256,10 @@ static void ife_gpio(void) {
 bool g90_local_iq_start(void) {
     const char       *dev = getenv("G90_IQ_DEV");
     const char       *sw  = getenv("G90_IQ_SWAP");
+    const char       *mm  = getenv("G90_IQ_MMAP");
+    const char       *per = getenv("G90_IQ_PERIOD");
     snd_pcm_hw_params_t *hp = NULL;
+    snd_pcm_sw_params_t *sp = NULL;
     unsigned          rate = IQ_RATE;
     snd_pcm_uframes_t period = G90_FUSE_BINS;
     int               err;
@@ -207,15 +279,34 @@ bool g90_local_iq_start(void) {
         pcm = NULL;
         return false;
     }
+    use_mmap = mm && !strcmp(mm, "1");
+    if (use_mmap) {
+        /* default: one wakeup per transformed block (FFT_EVERY blocks) */
+        period = per && atoi(per) >= G90_FUSE_BINS ? (snd_pcm_uframes_t)atoi(per) : G90_FUSE_BINS * FFT_EVERY;
+    }
     snd_pcm_hw_params_malloc(&hp);
     snd_pcm_hw_params_any(pcm, hp);
-    snd_pcm_hw_params_set_access(pcm, hp, SND_PCM_ACCESS_RW_INTERLEAVED);
+    snd_pcm_hw_params_set_access(pcm, hp, use_mmap ? SND_PCM_ACCESS_MMAP_INTERLEAVED : SND_PCM_ACCESS_RW_INTERLEAVED);
     snd_pcm_hw_params_set_format(pcm, hp, SND_PCM_FORMAT_S24_LE);
     snd_pcm_hw_params_set_channels(pcm, hp, IQ_CH);
     snd_pcm_hw_params_set_rate_near(pcm, hp, &rate, 0);
     snd_pcm_hw_params_set_period_size_near(pcm, hp, &period, 0);
     err = snd_pcm_hw_params(pcm, hp);
     snd_pcm_hw_params_free(hp);
+    if (err >= 0 && use_mmap) {
+        snd_pcm_hw_params_t *hq = NULL;
+
+        /* the driver may round the period; wake once per what it gave us */
+        snd_pcm_hw_params_malloc(&hq);
+        snd_pcm_hw_params_current(pcm, hq);
+        snd_pcm_hw_params_get_period_size(hq, &mmap_period, NULL);
+        snd_pcm_hw_params_free(hq);
+        snd_pcm_sw_params_malloc(&sp);
+        snd_pcm_sw_params_current(pcm, sp);
+        snd_pcm_sw_params_set_avail_min(pcm, sp, mmap_period);
+        err = snd_pcm_sw_params(pcm, sp);
+        snd_pcm_sw_params_free(sp);
+    }
     if (err < 0 || rate != IQ_RATE) {
         fprintf(stderr, "hw_g90 iq: hw params (%s), rate %u want %u\n",
                 err < 0 ? snd_strerror(err) : "ok", rate, IQ_RATE);
@@ -233,7 +324,8 @@ bool g90_local_iq_start(void) {
         started = 0;
         return false;
     }
-    fprintf(stderr, "hw_g90 iq: %s S24 %u Hz%s\n", dev, rate, swap_iq ? " swapped" : "");
+    fprintf(stderr, "hw_g90 iq: %s S24 %u Hz%s%s\n", dev, rate, swap_iq ? " swapped" : "",
+            use_mmap ? " mmap" : "");
     return true;
 }
 
