@@ -33,7 +33,7 @@ static void analog_set(int pct) {
     if (pct <= 0) {
         snprintf(cmd, sizeof(cmd), "amixer -c 0 -q sset 'Power Amplifier' 0; amixer -c 0 -q sset 'Mic1' mute");
     } else {
-        float db = 20.0f * log10f(pct / 100.0f);
+        float db = 60.0f * log10f(pct / 100.0f);   /* Pulse's volume scale is cubic: the loopback's dB at this VOL */
         float mic, pa;
 
         if (db > 6.0f) {
@@ -53,8 +53,10 @@ static void analog_set(int pct) {
         if (pa > 0.0f) {
             pa = 0.0f;
         }
-        snprintf(cmd, sizeof(cmd), "amixer -c 0 -q -- sset 'Mic' %.1fdB; amixer -c 0 -q -- sset 'Power Amplifier' %.0fdB; "
-                 "amixer -c 0 -q sset 'Mic1' unmute", mic, pa);
+        /* Raw steps, not "dB": amixer set -0.0dB as +3 dB. Mic 0..7 is -4.5..+6 dB, the amplifier 1..63 is
+         * -62..0 dB */
+        snprintf(cmd, sizeof(cmd), "amixer -c 0 -q sset 'Mic' %d; amixer -c 0 -q sset 'Power Amplifier' %d; "
+                 "amixer -c 0 -q sset 'Mic1' unmute", (int) lroundf((mic + 4.5f) / 1.5f), 63 + (int) pa);
     }
     if (system(cmd)) {
         /* best effort */
@@ -62,6 +64,11 @@ static void analog_set(int pct) {
 }
 
 static void analog_start(void) {
+    /* A loopback left by a GUI before this one would play over the analog path: dropped */
+    if (system("pactl list short modules | awk '$2==\"module-loopback\" && index($0, \"" AF_SRC "\"){print $1}' "
+               "| xargs -r -n1 pactl unload-module >/dev/null 2>&1")) {
+        /* best effort */
+    }
     /* Muted first: the level comes with the caller's gain */
     if (system("amixer -c 0 -q sset 'Power Amplifier' 0; amixer -c 0 -q sset 'Mic1' mute; "
                "amixer -c 0 -q sset 'Mic1 Boost' 0; amixer -c 0 -q sset 'Power Amplifier DAC' unmute; "
