@@ -7,6 +7,7 @@
 #define _GNU_SOURCE
 #include "g90_local_af.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,69 @@
 
 static int  module_id = -1;
 static int  last_pct = -1;
+static int  analog = -1;        /* G90_AF_ANALOG=1: the codec's own Mic1 -> mixer -> amplifier path; -1 not read yet */
+static bool analog_on;
+
+/* The analog path (opt-in, G90_AF_ANALOG=1): Mic1 to the output mixers in the codec itself, no capture/playback
+ * through the CPU (the Pulse loopback was 8-17 % of a core at ~290 wakeups a second). VOL as the loopback's gain
+ * (100 % unity): "Mic" (mixer, -4.5..+6 dB in 1.5 dB steps) up to the gain, "Power Amplifier" (-62..0 dB, 1 dB
+ * steps, its 0 a mute) the rest down. Tops out at +6 dB: Mic1 Boost (+24 dB and up) stays 0, the input is line
+ * level. Capture of Mic1 for the decoders is not changed (DAPM, Pulse's source). Not yet heard on a radio:
+ * docs/subsystems/performance.md */
+static void analog_set(int pct) {
+    char cmd[256];
+
+    if (pct <= 0) {
+        snprintf(cmd, sizeof(cmd), "amixer -c 0 -q sset 'Power Amplifier' 0; amixer -c 0 -q sset 'Mic1' mute");
+    } else {
+        float db = 20.0f * log10f(pct / 100.0f);
+        float mic, pa;
+
+        if (db > 6.0f) {
+            db = 6.0f;
+        }
+        if (db < -62.0f) {
+            db = -62.0f;
+        }
+        mic = ceilf(db / 1.5f) * 1.5f;      /* the step at or above, the amplifier down from it */
+        if (mic < -4.5f) {
+            mic = -4.5f;
+        }
+        if (mic > 6.0f) {
+            mic = 6.0f;
+        }
+        pa = roundf(db - mic);
+        if (pa > 0.0f) {
+            pa = 0.0f;
+        }
+        snprintf(cmd, sizeof(cmd), "amixer -c 0 -q -- sset 'Mic' %.1fdB; amixer -c 0 -q -- sset 'Power Amplifier' %.0fdB; "
+                 "amixer -c 0 -q sset 'Mic1' unmute", mic, pa);
+    }
+    if (system(cmd)) {
+        /* best effort */
+    }
+}
+
+static void analog_start(void) {
+    /* Muted first: the level comes with the caller's gain */
+    if (system("amixer -c 0 -q sset 'Power Amplifier' 0; amixer -c 0 -q sset 'Mic1' mute; "
+               "amixer -c 0 -q sset 'Mic1 Boost' 0; amixer -c 0 -q sset 'Power Amplifier DAC' unmute; "
+               "amixer -c 0 -q sset 'Power Amplifier Mixer' unmute; "
+               "amixer -c 0 -q sset 'Power Amplifier Mute' unmute >/dev/null 2>&1")) {
+        /* best effort */
+    }
+    analog_on = true;
+    last_pct = -1;
+}
+
+static void analog_stop(void) {
+    if (system("amixer -c 0 -q sset 'Mic1' mute; amixer -c 0 -q sset 'Power Amplifier Mixer' mute; "
+               "amixer -c 0 -q sset 'Power Amplifier' 100% >/dev/null 2>&1")) {
+        /* best effort */
+    }
+    analog_on = false;
+    last_pct = -1;
+}
 
 static int load_loopback(void) {
     FILE *p = popen("pactl load-module module-loopback source=" AF_SRC " sink=" AF_SNK
@@ -67,6 +131,21 @@ void g90_local_af_set(bool on, int gain_pct) {
         g90_local_af_stop();
         return;
     }
+    if (analog < 0) {
+        const char *e = getenv("G90_AF_ANALOG");
+
+        analog = e && !strcmp(e, "1");
+    }
+    if (analog) {
+        if (!analog_on) {
+            analog_start();
+        }
+        if (gain_pct != last_pct) {
+            analog_set(gain_pct);
+            last_pct = gain_pct;
+        }
+        return;
+    }
     if (module_id < 0) {
         /* Mic1 is the DE-9 phones net; its hardware gain stays at 0, the level is the loopback's. The
          * speaker amp is unmuted but the loopback starts at the caller's gain, 0 when VOL is 0. */
@@ -97,6 +176,9 @@ void g90_local_af_set(bool on, int gain_pct) {
 void g90_local_af_stop(void) {
     char cmd[64];
 
+    if (analog_on) {
+        analog_stop();
+    }
     if (module_id >= 0) {
         snprintf(cmd, sizeof(cmd), "pactl unload-module %d >/dev/null 2>&1", module_id);
         if (system(cmd)) {
