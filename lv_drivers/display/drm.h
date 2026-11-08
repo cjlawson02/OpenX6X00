@@ -54,6 +54,13 @@ void drm_wf_present_ring(const uint32_t *src, int32_t x, int32_t w, int32_t head
 /* The same after a ring turn: only rows head .. head + n - 1 (mod w) of src are new, the
  * others as last presented. On a strip plane only those rows are written */
 void drm_wf_scroll(const uint32_t *src, int32_t x, int32_t w, int32_t head, int32_t n);
+/* A whole picture of strip x, w written straight into its plane's buffer not on screen (no
+ * copy from RAM): its rows, *pitch_px pixels apart. NULL without a strip plane: present it
+ * from RAM then. Waits for the flip in flight; nothing else may present the strip until
+ * drm_wf_back_done(), which shows it at the next commit. The buffer may be written from
+ * another thread meanwhile; both calls are the GUI thread's */
+uint32_t * drm_wf_back(int32_t x, int32_t w, int32_t *pitch_px);
+void drm_wf_back_done(int32_t x, int32_t w);
 #endif
 /* Shows what was flushed or presented since the last call, at the next vblank:
  * once per main loop, after lv_timer_handler() */

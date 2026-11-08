@@ -716,6 +716,39 @@ void drm_wf_scroll(const uint32_t *src, int32_t x, int32_t w, int32_t head, int3
         splane_turn(s, src, head, n);
     }
 }
+
+uint32_t * drm_wf_back(int32_t x, int32_t w, int32_t *pitch_px) {
+    splane_t *s;
+
+    if (!planes || portrait_mode || x < 0 || w <= 0 || x + w > LAND_H) {
+        return NULL;
+    }
+    s = splane_for(x, w);
+    if (!s) {
+        return NULL;
+    }
+    wait_flip();
+    s->pl.back = s->shown ^ 1;
+    *pitch_px = s->pl.bufs[s->pl.back].pitch / 4;
+    return (uint32_t *) s->pl.bufs[s->pl.back].map;
+}
+
+void drm_wf_back_done(int32_t x, int32_t w) {
+    splane_t *s = splane_for(x, w);
+
+    if (!s) {
+        return;
+    }
+    s->base = 0;
+    s->win = 0;
+    s->valid = true;        /* (the RAM picture is not this one: its next present must be whole, not a turn) */
+    s->both = false;
+    if (!s->on) {
+        s->on = true;
+        s->setup = true;
+    }
+    s->pl.ready = true;
+}
 #endif
 
 void drm_wf_present_ring(const uint32_t *src, int32_t x, int32_t w, int32_t head) {

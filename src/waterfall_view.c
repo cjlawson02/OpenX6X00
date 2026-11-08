@@ -11,6 +11,7 @@
  *  else into an LVGL image, scrolled the same way (new lines and tune slides only, not a
  *  full rebuild every refresh).
  */
+#define _GNU_SOURCE     /* pthread_setname_np */
 #ifdef __ARM_NEON
 #include <arm_neon.h>
 #endif
@@ -35,6 +36,7 @@
 #include "lv_drivers/display/drm.h"
 
 #include <math.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -129,6 +131,7 @@ static int32_t          keep_bin;
 static uint32_t         keep_width;         /* 0: nothing kept */
 
 static void refresh_waterfall(void *arg);
+static void d3_wait(void);
 static void do_scroll_timer(lv_timer_t *t);
 static void update_middle_line(void);
 static void make_objs(void);
@@ -472,6 +475,8 @@ static bool shown(lv_obj_t *o) {
 static void direct_redraw(int new_row) {
     uint32_t    bandwidth = shown_span();
     lv_area_t   a;
+
+    d3_wait();
 
     if (!shown(obj) || !backlight_seen()) {
         wfp_full = true;            /* not up to date when shown again (the screen dark, the screensaver over it) */
@@ -1338,6 +1343,127 @@ static void d3_labels_update(bool on, const int32_t *ref_x, const int32_t *ref_h
 
 static void d3_redraw(void);
 
+#if USE_DRM && !BOARD_FB_ROTATE_90
+/* The 3D picture on a thread of its own, straight into the strip plane's buffer not on screen: drawn on the GUI
+ * thread it was three quarters of that thread (the keys, the knob and the rest of the GUI waited for it), and its
+ * copy from RAM to the plane went too. The GUI thread asks for one (d3_job_start), the thread draws it and hands it
+ * back through the scheduler (d3_job_done), which shows it at the next commit; one at a time, one more asked for
+ * meanwhile is drawn after it. Whatever else draws in the waterfall or presents it waits for it first (d3_wait) */
+static pthread_mutex_t d3_mx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  d3_cv = PTHREAD_COND_INITIALIZER;
+static bool            d3_thread_on, d3_thread_failed;
+static struct {
+    uint32_t *dst;
+    int32_t   ref_x[MAX_D3_REFS], n, y, h;
+    uint32_t  seq, drawn;           /* the newest job's number, and the newest drawn */
+} d3_job;
+static bool            d3_busy;     /* the GUI thread's: a job given and not shown yet */
+static bool            d3_again;    /* a picture asked for while busy */
+
+static void d3_job_done(void *arg);
+
+static void *d3_thread_fn(void *arg) {
+    uint32_t seq = 0;
+
+    pthread_mutex_lock(&d3_mx);
+    for (;;) {
+        while (d3_job.seq == seq) {
+            pthread_cond_wait(&d3_cv, &d3_mx);
+        }
+        seq = d3_job.seq;
+        uint32_t *dst = d3_job.dst;
+        int32_t   ref_x[MAX_D3_REFS], n = d3_job.n;
+
+        memcpy(ref_x, d3_job.ref_x, sizeof(ref_x));
+        pthread_mutex_unlock(&d3_mx);
+        d3_render(dst, false, ref_x, n);
+        pthread_mutex_lock(&d3_mx);
+        d3_job.drawn = seq;
+        pthread_cond_broadcast(&d3_cv);
+        scheduler_put_noargs(d3_job_done);
+    }
+    return NULL;
+}
+
+/* The job's picture to the screen at the next commit (GUI thread, the job drawn) */
+static void d3_job_show(void) {
+    d3_busy = false;
+    drm_wf_back_done(d3_job.y, d3_job.h);
+}
+
+static bool d3_job_drawn(void) {
+    pthread_mutex_lock(&d3_mx);
+    bool drawn = d3_job.drawn == d3_job.seq;
+
+    pthread_mutex_unlock(&d3_mx);
+    return drawn;
+}
+
+static void d3_job_done(void *arg) {
+    if (!d3_busy || !d3_job_drawn()) {
+        return;                     /* shown already (d3_wait), or a newer job not drawn yet: its own call comes */
+    }
+    d3_job_show();
+    if (d3_again) {
+        d3_again = false;
+        d3_redraw();
+    }
+}
+
+/* Until the picture being drawn is drawn, and shown */
+static void d3_wait(void) {
+    if (!d3_busy) {
+        return;
+    }
+    pthread_mutex_lock(&d3_mx);
+    while (d3_job.drawn != d3_job.seq) {
+        pthread_cond_wait(&d3_cv, &d3_mx);
+    }
+    pthread_mutex_unlock(&d3_mx);
+    d3_job_show();
+    d3_again = false;
+}
+
+/* A picture of the waterfall at panel rows a->y1 .. + height - 1 asked of the thread; false: none (no strip plane,
+ * no thread): drawn here then */
+static bool d3_job_start(const lv_area_t *a, const int32_t *ref_x, int n) {
+    int32_t   pitch;
+    uint32_t *dst;
+
+    if (d3_thread_failed) {
+        return false;
+    }
+    if (!d3_thread_on) {
+        pthread_t t;
+
+        if (pthread_create(&t, NULL, d3_thread_fn, NULL)) {
+            d3_thread_failed = true;
+            return false;
+        }
+        pthread_setname_np(t, "wf_3d");
+        pthread_detach(t);
+        d3_thread_on = true;
+    }
+    dst = drm_wf_back(a->y1, height, &pitch);
+    if (!dst || pitch != WIDTH) {
+        return false;
+    }
+    pthread_mutex_lock(&d3_mx);
+    d3_job.dst = dst;
+    d3_job.n = n;
+    d3_job.y = a->y1;
+    d3_job.h = height;
+    memcpy(d3_job.ref_x, ref_x, sizeof(d3_job.ref_x));
+    d3_job.seq++;
+    pthread_cond_signal(&d3_cv);
+    pthread_mutex_unlock(&d3_mx);
+    d3_busy = true;
+    return true;
+}
+#else
+static void d3_wait(void) {}
+#endif
+
 /* Whether a picture is seen: not under a window (the waterfall a refresh in refresh_period then, as 2D, without
  * the glide's pictures between), not in the walkie screen (the main screen is not loaded, not hidden), not with the
  * screen dark (unless the remote screen is watched) */
@@ -1382,6 +1508,7 @@ static void d3_redraw(void) {
     uint32_t every = LV_MAX(glide, D3_MIN_MS);   /* with the glide, its rate for every picture: rows and tuning too */
 
     if (!shown(obj) || walkie_on() || !backlight_seen()) {
+        d3_wait();
         d3_drawn_buf = NULL;        /* the plane may have been drawn over: the whole background again */
         return;
     }
@@ -1395,6 +1522,12 @@ static void d3_redraw(void) {
         }
         return;
     }
+#if USE_DRM && !BOARD_FB_ROTATE_90
+    if (d3_busy) {
+        d3_again = true;            /* after the one being drawn */
+        return;
+    }
+#endif
     d3_last_ms = lv_tick_get();
     int n = freq_scale_refs(ref_x, ref_hz, MAX_D3_REFS);
 
@@ -1411,12 +1544,17 @@ static void d3_redraw(void) {
     if (direct) {
         lv_area_t a;
 
-        d3_render(wfp, WFP_PORTRAIT, ref_x, n);
         wfp_head = 0;
         lv_obj_get_coords(obj, &a);
-#if USE_DRM
-        drm_wf_present_ring(wfp, a.y1, height, wfp_head);
+#if USE_DRM && !BOARD_FB_ROTATE_90
+        if (!d3_job_start(&a, ref_x, n))
 #endif
+        {
+            d3_render(wfp, WFP_PORTRAIT, ref_x, n);
+#if USE_DRM
+            drm_wf_present_ring(wfp, a.y1, height, wfp_head);
+#endif
+        }
     } else {
         d3_render((uint32_t *) frame->data, false, ref_x, n);
         lv_obj_invalidate(img);
@@ -1551,6 +1689,7 @@ static void refresh_waterfall(void *arg) {
         d3_labels_update(false, NULL, NULL, 0, 0);     /* out of 3D: its labels away */
         d3_label_y = -1;
     }
+    d3_wait();
     d3_drawn_buf = NULL;            /* 2D draws over it: 3D again from the whole background */
     {
         int n = __atomic_exchange_n(&new_rows, 0, __ATOMIC_ACQUIRE);
@@ -1945,6 +2084,7 @@ static void make_objs(void) {
 void waterfall_set_height(lv_coord_t h) {
     lv_obj_set_height(obj, h);
     lv_obj_update_layout(obj);
+    d3_wait();                      /* the picture being drawn is of the old height */
     height = lv_obj_get_height(obj);
 
     if (ready) {
