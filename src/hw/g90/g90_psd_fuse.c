@@ -16,9 +16,38 @@
 #define NORM_MIN (-5.0f)
 #define NORM_MAX 80.0f
 
-static int cmp_float(const void *a, const void *b) {
-    float d = *(const float *)a - *(const float *)b;
-    return d < 0.0f ? -1 : d > 0.0f ? 1 : 0;
+/* The k-th smallest of v[0 .. n - 1] (v is reordered): quickselect, O(n) where a sort is
+ * O(n log n) and calls back per compare. Same value as sorted[k]. */
+static float select_kth(float *v, int n, int k) {
+    int lo = 0, hi = n - 1;
+
+    while (lo < hi) {
+        float pivot = v[lo + (hi - lo) / 2];
+        int   i = lo, j = hi;
+
+        while (i <= j) {
+            while (v[i] < pivot) {
+                i++;
+            }
+            while (v[j] > pivot) {
+                j--;
+            }
+            if (i <= j) {
+                float t = v[i];
+
+                v[i++] = v[j];
+                v[j--] = t;
+            }
+        }
+        if (k <= j) {
+            hi = j;
+        } else if (k >= i) {
+            lo = i;
+        } else {
+            break;
+        }
+    }
+    return v[k];
 }
 
 static float percentile20(const float *src, const uint8_t *mask, int n, float *scratch) {
@@ -32,8 +61,7 @@ static float percentile20(const float *src, const uint8_t *mask, int n, float *s
     if (c <= 0) {
         return 0.0f;
     }
-    qsort(scratch, (size_t)c, sizeof(float), cmp_float);
-    return scratch[(int)(0.20f * (float)(c - 1))];
+    return select_kth(scratch, c, (int)(0.20f * (float)(c - 1)));
 }
 
 static float clamp_norm(float db, float floor_db) {
