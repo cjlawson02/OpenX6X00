@@ -34,7 +34,7 @@
 #define BOARD_G90_DEV       "/dev/ttyS1"
 #endif
 #ifndef BOARD_G90_PROFILE
-#define BOARD_G90_PROFILE   "1.81"
+#define BOARD_G90_PROFILE   "auto"  /* the body's own firmware picks it (hw_g90.c) */
 #endif
 #ifndef BOARD_G90_ALLOW_TX
 #define BOARD_G90_ALLOW_TX  0
@@ -125,6 +125,9 @@
 #define BOARD_WF_REF_STEP       1
 #define BOARD_FILTER_LOW_STEP   10
 #define BOARD_FILTER_BW_STEP    20
+/* The body on a DE-9 cable, not in the case: the GUI starts without it (radio_init), the S-meter
+ * says whether it answers (smeter.c), and the "No data from the base" notice is not shown */
+#define BOARD_BASE_DETACHABLE   1
 #else /* X6100 */
 #define BOARD_PWR_MIN           0.1f
 #define BOARD_PWR_MAX           10.0f

@@ -90,11 +90,13 @@ elseif(HW_BACKEND STREQUAL "g90")
     # libg90 is C++20; g90_link is the C face. An empty LIBG90_DIR fetches the pin below
     # (same pattern as aether_x6100_control). -DLIBG90_DIR=<tree> uses that tree instead.
     # -DLIBG90_USE_INSTALLED=ON is find_package(libg90) when a package is already installed.
-    # Profile defaults to 1.81 (G90_PROFILE). PTT and ATU tune stay off unless G90_ALLOW_TX=1.
+    # Profile defaults to auto, the body's reported firmware (G90_PROFILE). PTT and ATU tune
+    # stay off unless G90_ALLOW_TX=1.
     set(LIBG90_GIT_REPOSITORY "https://github.com/cjlawson02/libg90.git" CACHE STRING
         "libg90 git URL when LIBG90_DIR is empty")
-    # No release tag yet. This is origin/main: the v0.1.0 library (cfec8f2) plus a Renovate config.
-    set(LIBG90_GIT_TAG "dd1377a7c528af1139d80582a4d32c6fc704dfa4" CACHE STRING
+    # No release tag yet: v0.1.0 (cfec8f2), the body S-meter decode fix and De9Link::set_profile
+    # with profile_for_body_version (libg90 #2, the body's firmware picks the profile).
+    set(LIBG90_GIT_TAG "4eefd6e9fa43c554c1de502c2b3d2ed6b08d6f39" CACHE STRING
         "libg90 revision fetched when LIBG90_DIR is empty")
     set(LIBG90_DIR "" CACHE PATH "libg90 source tree; empty fetches LIBG90_GIT_TAG")
     option(LIBG90_USE_INSTALLED "find_package(libg90) instead of fetching it" OFF)

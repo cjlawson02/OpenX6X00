@@ -14,7 +14,9 @@
  *
  *  Compile-time defaults are BOARD_G90_DEV, BOARD_G90_PROFILE, and BOARD_G90_ALLOW_TX in board.h.
  *  G90_DEV, G90_PROFILE, and G90_ALLOW_TX override them when set and non-empty; G90_ALLOW_TX must
- *  be 1 to allow PTT and ATU tune on the wire, otherwise they are dropped.
+ *  be 1 to allow PTT and ATU tune on the wire, otherwise they are dropped. G90_PROFILE "auto" (the
+ *  default) encodes as 1.81 until the body answers, then as its own firmware asks (body bytes 6-7),
+ *  again whenever those change (another body on the cable); "1.78" or "1.81" holds that one.
  *
  *  Copyright (c) 2026 Chris Lawson
  */
@@ -70,6 +72,8 @@ static int             iq_only_left;
 static radio_base_ver_t ver;
 static char            ver_str[16] = "?";
 static bool            allow_tx;
+static uint16_t        ver_raw;     /* the body's version bytes (7, 6) as last read; 0: none yet */
+static bool            profile_auto;    /* G90_PROFILE "auto": the encoding follows ver_raw */
 #ifdef BOARD_GSOC
 static bool            af_vol_seen;
 #endif
@@ -84,12 +88,13 @@ bool hw_init(void) {
 
     dev  = dev && *dev ? dev : BOARD_G90_DEV;
     prof = prof && *prof ? prof : BOARD_G90_PROFILE;
+    profile_auto = !strcmp(prof, "auto");
     if (tx && *tx) {
         allow_tx = !strcmp(tx, "1");
     } else {
         allow_tx = BOARD_G90_ALLOW_TX;
     }
-    link_    = g90_link_open(dev, prof, err, sizeof(err));
+    link_    = g90_link_open(dev, profile_auto ? "1.81" : prof, err, sizeof(err));
     if (!link_) {
         fprintf(stderr, "hw_g90: %s\n", err);
         return false;
@@ -114,6 +119,18 @@ bool hw_init(void) {
     return true;
 }
 
+/* The body's version: bytes 7 and 6 as hex digits, the stock head's "%-2X.%2X" */
+static void version_set(void) {
+    char     s[sizeof(ver_str)];
+    unsigned a = 0, b = 0;
+
+    snprintf(s, sizeof(s), "%X.%02X", body.ver_major, body.ver_minor);
+    if (sscanf(s, "%u.%u", &a, &b) == 2) {
+        ver = (radio_base_ver_t){(uint8_t)a, (uint8_t)b, 0, 0};
+    }
+    memcpy(ver_str, s, sizeof(ver_str));
+}
+
 static bool exchange(void) {
     g90_ctl_t c;
     char      err[128] = "";
@@ -127,6 +144,18 @@ static bool exchange(void) {
             fprintf(stderr, "hw_g90: %s (%u)\n", err, fails);
         }
         return false;
+    }
+    {
+        uint16_t raw = (uint16_t)(body.ver_major << 8 | body.ver_minor);
+
+        if (raw && raw != ver_raw) {
+            const char *now = profile_auto ? g90_link_follow_body(link_, body.ver_major, body.ver_minor) : NULL;
+
+            ver_raw = raw;
+            version_set();
+            /* This reply's frame went out the old way; the next carries the whole state the new way */
+            fprintf(stderr, "hw_g90: body %s%s%s\n", ver_str, now ? ", profile " : "", now ? now : "");
+        }
     }
     {
         uint32_t hz = c.vfo[c.vfo_b ? 1 : 0].freq_hz;
@@ -149,14 +178,8 @@ bool hw_control_init(void) {
 void hw_bb_reset(void) {
 }
 
-/* The body's version: bytes 7 and 6 as hex digits, the stock head's "%-2X.%2X" */
+/* The version comes with the body's replies (exchange), read again when it changes: "?" until the first */
 void hw_start(void) {
-    unsigned a = 0, b = 0;
-
-    snprintf(ver_str, sizeof(ver_str), "%X.%02X", body.ver_major, body.ver_minor);
-    if (sscanf(ver_str, "%u.%u", &a, &b) == 2) {
-        ver = (radio_base_ver_t){(uint8_t)a, (uint8_t)b, 0, 0};
-    }
 }
 
 radio_base_ver_t hw_base_ver(void) {

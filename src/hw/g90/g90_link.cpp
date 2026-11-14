@@ -108,6 +108,17 @@ extern "C" g90_link_t *g90_link_open(const char *path, const char *profile, char
     return l;
 }
 
+extern "C" const char *g90_link_follow_body(g90_link_t *link, uint8_t ver_major, uint8_t ver_minor) {
+    const g90::Profile p = g90::profile_for_body_version(ver_major, ver_minor);
+
+    if (p == link->profile) {
+        return nullptr;
+    }
+    link->profile = p;
+    link->link->set_profile(p);
+    return p == g90::Profile::V178 ? "1.78" : "1.79+";
+}
+
 extern "C" void g90_link_close(g90_link_t *link) {
     delete link;
 }

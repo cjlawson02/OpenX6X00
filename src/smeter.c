@@ -16,6 +16,8 @@
 #include "cfg/cfg_api.h"
 #include "util.h"
 #include "scheduler.h"
+#include "board.h"
+#include "radio.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -707,6 +709,32 @@ void meter_tx_redraw(void) {
     if (tx_readings && obj) lv_obj_invalidate(obj);
 }
 
+#ifdef BOARD_BASE_DETACHABLE
+/* The body on its cable (board.h): whether it answers, bottom left in the box, under the bars and left
+ * of the value. Disconnected NO_DATA_MS after its last packet (radio_no_data), and from the start until one */
+#define LINK_POLL_MS    500
+
+static lv_obj_t *link_label;
+
+static void link_poll(lv_timer_t *t) {
+    static int8_t shown = -1;   /* -1: nothing yet */
+    int8_t        up = !radio_no_data();
+
+    if (up == shown) return;
+    shown = up;
+    lv_label_set_text(link_label, up ? "Connected" : "Disconnected");
+    lv_obj_set_style_text_color(link_label, up ? TC(ok) : TC(warn), 0);
+}
+
+static void link_init(void) {
+    link_label = lv_label_create(obj);
+    lv_obj_set_style_text_font(link_label, &sony_16, 0);
+    lv_obj_align(link_label, LV_ALIGN_BOTTOM_LEFT, 6, -4);
+    link_poll(NULL);
+    lv_timer_create(link_poll, LINK_POLL_MS, NULL);
+}
+#endif
+
 lv_obj_t *meter_init(lv_obj_t *parent) {
     obj = lv_obj_create(parent);
     lv_obj_add_style(obj, &meter_style, 0);
@@ -731,6 +759,9 @@ lv_obj_t *meter_init(lv_obj_t *parent) {
     subject_subscribe_delayed((Subject *)cfg_smeter_color, on_needle_change, NULL);
     subject_subscribe_delayed((Subject *)cfg_smeter_lamp, on_needle_change, NULL);
     subject_subscribe_delayed((Subject *)cfg_smeter_bar_color, on_needle_change, NULL);
+#ifdef BOARD_BASE_DETACHABLE
+    link_init();
+#endif
     return obj;
 }
 
