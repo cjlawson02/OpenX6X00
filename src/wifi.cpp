@@ -96,6 +96,8 @@ static void connection_delete_cb(GObject *connection, GAsyncResult *result, gpoi
 static void connection_activating_cb(GObject *client, GAsyncResult *result, gpointer user_data);
 static void eth_refresh_cb(lv_timer_t *t);
 static void wifi_radio_enable(bool on);
+static void wifi_device_autoconnect(bool on);
+static void wifi_rejoin_cb(GObject *client, GAsyncResult *result, gpointer user_data);
 
 static void power_on_cb(lv_timer_t *t) {
     wifi_power_on();
@@ -191,7 +193,14 @@ void wifi_power_on() {
             setup_wifi_device();
         }
     }
-    if (!device) {
+    if (device) {
+        wifi_device_autoconnect(true);
+        /* After off's disconnect NetworkManager won't join again by itself (autoconnect blocked until a join is
+         * asked for): the best saved network in reach, as a pick from the list would */
+        if (!nm_device_get_active_connection(device)) {
+            nm_client_activate_connection_async(client, NULL, device, NULL, NULL, wifi_rejoin_cb, NULL);
+        }
+    } else {
         set_status(WIFI_STARTING);
     }
     lv_msg_send(MSG_WIFI_STATE_CHANGED, NULL);
@@ -201,7 +210,13 @@ void wifi_power_off() {
     LV_LOG_USER("Power off wifi/bt");
     set_status(WIFI_OFF);
     if (device) {
-        /* The same device comes back at power on where the chip stays up (G90): no second set of handlers */
+        /* Where the chip has no power pin (G90) its adapter stays up: off is a disconnect, and no joins until on.
+         * Not WiFi's rfkill: the G90's rtw88 USB adapter does not always come back from it (USB errors -71 at
+         * the chip's power on, until it is replugged) */
+        wifi_device_autoconnect(false);
+        nm_device_disconnect_async(device, NULL, NULL, NULL);
+
+        /* The same device comes back at power on: no second set of handlers */
         NMActiveConnection *active_con = nm_device_get_active_connection(device);
 
         if (active_con) {
@@ -238,6 +253,25 @@ static void wifi_radio_enable(bool on) {
     }
     nm_client_dbus_set_property(client, NM_DBUS_PATH, NM_DBUS_INTERFACE, "WirelessEnabled",
                                 g_variant_new_boolean(on), -1, NULL, NULL, NULL);
+}
+
+static void wifi_rejoin_cb(GObject *client, GAsyncResult *result, gpointer user_data) {
+    GError             *error = NULL;
+    NMActiveConnection *ac = nm_client_activate_connection_finish(NM_CLIENT(client), result, &error);
+
+    if (ac) {
+        LV_LOG_USER("WiFi on: joining %s", nm_active_connection_get_id(ac));
+        g_object_unref(ac);
+    } else {
+        LV_LOG_USER("WiFi on: no saved network to join (%s)", error->message);
+        g_error_free(error);
+    }
+}
+
+/* The WiFi device's own autoconnect (runtime, NetworkManager starts with it on), asynchronously */
+static void wifi_device_autoconnect(bool on) {
+    nm_client_dbus_set_property(client, nm_object_get_path(NM_OBJECT(device)), NM_DBUS_INTERFACE_DEVICE,
+                                "Autoconnect", g_variant_new_boolean(on), -1, NULL, NULL, NULL);
 }
 
 void wifi_start_scan() {
