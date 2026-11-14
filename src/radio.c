@@ -374,6 +374,17 @@ bool radio_init() {
         return false;
     }
 
+#ifdef BOARD_BASE_DETACHABLE
+    /* One try: a body not plugged in is not a fault. The flow finds it when it answers, and each
+     * exchange carries the whole state, so nothing set before then is lost */
+    if (hw_control_init()) {
+        start_trace("base answered");
+    } else {
+        start_trace("base: no answer, starting without it");
+    }
+    return true;
+#endif
+
     /* Back off (0.1 .. 25.6 s) and, once, after about 6 s without an answer,
      * pulse the baseband reset pin instead of waiting forever (upstream 37f3894) */
     uint8_t  cnt = 0;
@@ -2732,7 +2743,9 @@ typedef struct {
 static void base_gone_cb(void *arg) {
     gone_line_t *g = arg;
 
-    msg_schedule_long_text_fmt("%s", gone_lines[g->line]);
+#ifndef BOARD_BASE_DETACHABLE
+    msg_schedule_long_text_fmt("%s", gone_lines[g->line]);   /* else the S-meter's link label says it */
+#endif
     if (g->never) {
         start_trace("base: no data in %u s", BASE_GONE_START_MS / 1000);
     }
