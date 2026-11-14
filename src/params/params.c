@@ -151,7 +151,12 @@ params_t params = {
     .qth                    = { .x = "",  .max_len = 6, .name = "qth" },
     .callsign               = { .x = "",  .max_len = 12, .name = "callsign" },
 
+#if defined(HW_BACKEND_G90)
+    /* The G90's WiFi is a USB adapter NetworkManager runs whatever the switch says (no power pin) */
+    .wifi_enabled           = { .x = true, .name="wifi_enabled" },
+#else
     .wifi_enabled           = { .x = false, .name="wifi_enabled" },
+#endif
 
     .theme                  = { .x = THEME_SIMPLE, .name="theme"},
     .theme_name             = { .x = "RF.Guru", .max_len = 31, .name = "theme_name" },

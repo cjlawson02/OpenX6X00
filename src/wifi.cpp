@@ -183,6 +183,14 @@ void wifi_power_on() {
     LV_LOG_USER("Power on wifi/bt");
     params_bool_set(&params.wifi_enabled, true);
     radio_wifi_power(false);
+    /* A WiFi device NetworkManager already has (the G90 has no WiFi power pin: its USB adapter stayed up and
+     * no device-added comes), or else the one device-added brings once the chip is up */
+    if (!device && client) {
+        device = find_wifi_device();
+        if (device) {
+            setup_wifi_device();
+        }
+    }
     if (!device) {
         set_status(WIFI_STARTING);
     }
@@ -193,6 +201,13 @@ void wifi_power_off() {
     LV_LOG_USER("Power off wifi/bt");
     set_status(WIFI_OFF);
     if (device) {
+        /* The same device comes back at power on where the chip stays up (G90): no second set of handlers */
+        NMActiveConnection *active_con = nm_device_get_active_connection(device);
+
+        if (active_con) {
+            g_signal_handlers_disconnect_by_func(active_con, (gpointer)active_con_state_changed_sig_cb, NULL);
+        }
+        g_signal_handlers_disconnect_by_func(device, (gpointer)device_state_changed_sig_cb, NULL);
         device = NULL;
     }
     params_bool_set(&params.wifi_enabled, false);
