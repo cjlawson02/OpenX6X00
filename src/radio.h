@@ -78,6 +78,10 @@ bool radio_say_no_tx(const char *what, int32_t freq, bool now);
 /* The base sends no data (#152): none for NO_DATA_MS, or none since the start (base_no_data). PTT, the modem, the
  * GUI's CW key, the tuner and the SWR scan are refused meanwhile. Any thread */
 bool radio_no_data(void);
+/* The volume held: not changed by any key, knob, page or CAT while on (base_link.c: a body away, with nothing to
+ * hear it by, came back loud). Any thread */
+void radio_hold_vol(bool on);
+bool radio_vol_locked(void);
 /* Why then, on the screen: "<what>: no data from the base", then "Baseband: Settings > Info", each whole in every
  * font (DejaVu 38: 536 px at most for "No tune"). now: over what shows, else after the messages waiting. False: the
  * data flows, nothing said. Any thread */

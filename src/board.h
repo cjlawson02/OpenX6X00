@@ -126,7 +126,8 @@
 #define BOARD_FILTER_LOW_STEP   10
 #define BOARD_FILTER_BW_STEP    20
 /* The body on a DE-9 cable, not in the case: the GUI starts without it (radio_init), a box by the
- * S-meter says whether it answers (base_link.c), and the "No data from the base" notice is not shown */
+ * S-meter says whether it answers, the dial and the volume are held without it (base_link.c), and
+ * the "No data from the base" notice is not shown */
 #define BOARD_BASE_DETACHABLE   1
 #else /* X6100 */
 #define BOARD_PWR_MIN           0.1f
