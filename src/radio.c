@@ -2733,6 +2733,12 @@ static const char *const gone_lines[] = {
     "Base versions: see the README",    /* an X6200's below 1.0.7 is not the only case */
 };
 
+#ifdef BOARD_BASE_DETACHABLE
+#define GONE_SAID           ""      /* the screen says it from NO_DATA_MS on (base_link.c), not here */
+#else
+#define GONE_SAID           ": said on the screen"
+#endif
+
 #define GONE_LINE_MS        4000    /* the notice's next line as the one before goes (msg_box's long message) */
 
 typedef struct {
@@ -2745,7 +2751,7 @@ static void base_gone_cb(void *arg) {
     gone_line_t *g = arg;
 
 #ifndef BOARD_BASE_DETACHABLE
-    msg_schedule_long_text_fmt("%s", gone_lines[g->line]);   /* else the S-meter's link label says it */
+    msg_schedule_long_text_fmt("%s", gone_lines[g->line]);   /* else base_link.c says it all along */
 #endif
     if (g->never) {
         start_trace("base: no data in %u s", BASE_GONE_START_MS / 1000);
@@ -2792,7 +2798,7 @@ static bool base_gone(void) {
     gone_said = true;
     line = 1;
     line_time = now_time;
-    base_guard_log("no data from the base for %u ms%s: said on the screen", (unsigned)(now_time - pack_time),
+    base_guard_log("no data from the base for %u ms%s" GONE_SAID, (unsigned)(now_time - pack_time),
                    g.never ? ", none since the start" : "");
     return true;
 }

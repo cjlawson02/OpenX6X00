@@ -14,6 +14,7 @@
 
 #ifdef BOARD_BASE_DETACHABLE
 
+#include "button_bar.h"
 #include "gui_styles.h"
 #include "radio.h"
 #include "theme.h"
@@ -36,8 +37,20 @@
 
 static lv_style_t  box_style;
 static lv_obj_t   *label;
+static lv_obj_t   *shade;   /* over the spectrum and the waterfall, which stand still without the body */
+static lv_obj_t   *spectrum;
 static lv_timer_t *timer;
 static int8_t      shown = -1;  /* -1: not shown yet on these widgets */
+
+/* From the spectrum's top (with the spectrum off, under the strip it hides behind) to the buttons, or the bottom
+ * with them hidden: again on each poll, the layout may change while it is shown */
+static void shade_place(void) {
+    lv_coord_t top = LV_MAX(lv_obj_get_y(spectrum), FREQ_STRIP_Y + FREQ_STRIP_H + METER_ROW_H);
+    lv_coord_t end = buttons_hidden() ? BOARD_DISP_H : BOARD_DISP_H - BUTTONS_H;
+
+    lv_obj_set_pos(shade, 0, top);
+    lv_obj_set_size(shade, BOARD_DISP_W, end - top);
+}
 
 /* A top-bar box of the theme, as walkie.c makes its own */
 static lv_obj_t *box_make(lv_obj_t *screen, lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h) {
@@ -56,16 +69,43 @@ static void poll(lv_timer_t *t) {
     int8_t up = !radio_no_data();
 
     (void)t;
+    if (!up) shade_place();
     if (up == shown) return;
     shown = up;
     lv_label_set_text(label, up ? "Connected to G90" : "G90 disconnected");
     lv_obj_set_style_text_color(label, up ? TC(ok) : TC(warn), 0);
+    if (up) {
+        lv_obj_add_flag(shade, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(shade, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/* Over the waterfall and what lies on it, under the panels, the buttons and the messages. Not clickable: a touch
+ * goes to what is under it */
+static void shade_build(lv_obj_t *screen, lv_obj_t *waterfall) {
+    lv_obj_t *text;
+
+    shade = lv_obj_create(screen);
+    lv_obj_move_to_index(shade, lv_obj_get_index(waterfall) + 1);
+    lv_obj_remove_style_all(shade);
+    lv_obj_set_style_bg_color(shade, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(shade, LV_OPA_60, 0);
+    lv_obj_clear_flag(shade, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(shade, LV_OBJ_FLAG_HIDDEN);
+    text = lv_label_create(shade);
+    lv_obj_set_style_text_font(text, &sony_28, 0);
+    lv_obj_set_style_text_color(text, TC(warn), 0);
+    lv_label_set_text(text, "G90 disconnected (DE-9)");
+    lv_obj_center(text);
 }
 
 /* Again on a theme change, on new widgets (the old ones gone with lv_obj_clean): the timer is made once */
-void base_link_build(lv_obj_t *screen, lv_obj_t *meter) {
+void base_link_build(lv_obj_t *screen, lv_obj_t *meter, lv_obj_t *spectrum_obj, lv_obj_t *waterfall) {
     lv_obj_t *box = NULL;
 
+    spectrum = spectrum_obj;
+    shade_build(screen, waterfall);
     if (theme_shape.vision) {
         lv_coord_t w = VISION_METER_W - VISION_BOX_W - TOP_BAR_MARGIN;
 
