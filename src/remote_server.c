@@ -122,6 +122,9 @@
 #include "main.h"
 #include "params/params.h"
 #include "radio.h"
+#ifdef BOARD_INPUT_CUSTOM
+#include "gsoc_input.h"
+#endif
 #include "scheduler.h"
 #include "screen_light.h"
 #include "screen_main.h"
@@ -332,7 +335,12 @@ static const struct {
     const char *name;
     uint16_t    code;
 } keys[] = {
-#ifdef BOARD_X6200
+#if defined(BOARD_GSOC)
+    /* its panel's (gsoc_input.c); P is the AXP209's, not the GUI's, and the left knob's press is MODE */
+    {"F", KEY_KBDILLUMTOGGLE},       {"PO", KEY_KBDILLUMDOWN},         {"ATU", KEY_KBDILLUMUP},
+    {"BAND_DOWN", KEY_SEND},         {"AGC", KEY_REPLY},               {"BAND_UP", KEY_FORWARDMAIL},
+    {"LOCK", KEY_F20},               {"MODE", KEY_F17},                {"PTT", KEY_PLAYPAUSE},
+#elif defined(BOARD_X6200)
     {"POWER", KEY_POWER},
     {"GEN", BTN_TRIGGER_HAPPY1},     {"APP", BTN_TRIGGER_HAPPY2},      {"KEY", BTN_TRIGGER_HAPPY3},
     {"PTT", BTN_TRIGGER_HAPPY4},     {"BAND_DOWN", BTN_TRIGGER_HAPPY5}, {"BAND_UP", BTN_TRIGGER_HAPPY6},
@@ -864,6 +872,10 @@ static void power_post(void) {
 
 static void key_emit(uint16_t code, bool down) {
     ctl_injected();
+#ifdef BOARD_INPUT_CUSTOM
+    board_input_key(code, down);    /* no node to write into: the board's own input (gsoc_input.c) */
+    return;
+#endif
     if (code == KEY_POWER && dev_power < 0) {
         power_down = down;
         power_post();
@@ -883,6 +895,10 @@ static int key_code(const char *name) {
  * reports them. The main knob counts right turns as positive, VOL and MFK count left turns as
  * positive (knob_device.c, mfk_device.c): their events go out the other way round */
 static bool knob_emit(const char *name, int n) {
+#ifdef BOARD_INPUT_CUSTOM
+    ctl_injected();
+    return board_input_knob(name, n);
+#endif
     int      fd, axis, dir;
 
     if (!strcasecmp(name, "main"))
