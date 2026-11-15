@@ -31,6 +31,10 @@
 .rm-r .k.small { width:64px; }
 .rm-r .dial { align-self:center; }
 .rm-screen { position:relative; background:#000; border-radius:10px; overflow:hidden; aspect-ratio:800/480; box-shadow:0 0 0 1px #1a283c, 0 6px 24px #0008; }
+/* The GSOC (.gsoc, from PO among its keys): the left knob (HI/BW inner, LOW/CNT outer, its press MODE) in the MFK's
+ * place, SQL under VOL, whose press is LOCK; F and Po where GEN to DFL are. The screen's box: the radio's "size" */
+.rm:not(.gsoc) .g-only, .rm.gsoc #mfk { display:none; }
+.dial .krow .lbl { width:58px; text-align:right; }   /* the GSOC's outer ring under its inner one */
 .rm-screen.portrait { aspect-ratio:480/800; max-width:420px; margin:0 auto; }
 .rm-screen canvas { width:100%; height:100%; display:block; image-rendering:auto; }
 .rm-screen .msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px; color:#9fb3c8; background:#0b1220cc; font-size:15px; }
@@ -112,13 +116,15 @@
     </div>
   </div>
   <div class="rm-l">
-    <div class="dial sm" id="vol"><span class="lbl">VOL</span><div class="ring" data-push="VOL" role="button" aria-label="VOL knob" title="Drag around it or use the mouse wheel to turn; a click is its push, held for a long press"><i></i></div><div class="krow"><button class="k" data-knob="vol" data-step="-1">−</button><button class="k" data-knob="vol" data-step="1">+</button></div></div>
+    <div class="dial sm" id="vol"><span class="lbl">VOL</span><div class="ring" data-push="VOL" role="button" aria-label="VOL knob" title="Drag around it or use the mouse wheel to turn; a click is its push, held for a long press"><i></i></div><div class="krow"><button class="k" data-knob="vol" data-step="-1">−</button><button class="k" data-knob="vol" data-step="1">+</button></div><div class="krow g-only"><span class="lbl">SQL</span><button class="k" data-knob="sql" data-step="-1">−</button><button class="k" data-knob="sql" data-step="1">+</button></div></div>
     <button class="k small pwr" data-key="POWER" title="Tap: screen on/off">POWER</button>
     <div class="fn">
       <button class="k" data-key="GEN">GEN</button><button class="k" data-key="APP">APP</button><button class="k" data-key="KEY">KEY</button>
       <button class="k" data-key="MSG">MSG</button><button class="k" data-key="DFN">DFN</button><button class="k" data-key="DFL">DFL</button>
+      <button class="k" data-key="F" title="Tap: the main knob for RIT; hold: XIT">F</button><button class="k" data-key="PO" title="Tap: the main knob for TX power; hold: RF gain">Po</button>
     </div>
     <div class="dial sm" id="mfk"><span class="lbl">MFK</span><div class="ring" data-push="MFK" role="button" aria-label="MFK knob" title="Drag around it or use the mouse wheel to turn; a click is its push, held for a long press"><i></i></div><div class="krow"><button class="k" data-knob="mfk" data-step="-1">−</button><button class="k" data-knob="mfk" data-step="1">+</button></div></div>
+    <div class="dial sm g-only" id="bw"><span class="lbl">HI/BW</span><div class="ring" data-push="MODE" role="button" aria-label="HI/BW knob" title="Drag around it or use the mouse wheel to turn; a click is its push (MODE), held for a long press"><i></i></div><div class="krow"><button class="k" data-knob="bw" data-step="-1">−</button><button class="k" data-knob="bw" data-step="1">+</button></div><div class="krow"><span class="lbl">LOW/CNT</span><button class="k" data-knob="cnt" data-step="-1">−</button><button class="k" data-knob="cnt" data-step="1">+</button></div></div>
   </div>
   <div class="rm-mid">
     <div class="rm-screen" id="screen">
@@ -172,7 +178,7 @@
   function showFrame(buf) {
     const dv = new DataView(buf);
     const w = dv.getUint16(0, true), h = dv.getUint16(2, true);
-    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; $("#screen").toggleClass("portrait", h > w); }
+    if (cv.width !== w || cv.height !== h) screenSize(w, h);
     const blob = new Blob([buf.slice(8)], {type: "image/jpeg"});
     frames++; bytes += buf.byteLength; lastFrame = Date.now();
     if (drawing) { pending = blob; return; }     /* a slow decoder: only the newest frame */
@@ -219,6 +225,12 @@
     if (picPointer) { picPointer = false; this.blur(); }
   });
   const screenEl = document.getElementById("screen"), panelEl = document.getElementById("rm");   /* the keys and knobs around the picture */
+  /* The radio's size: the box takes its shape, a 1024x600 screen (the GSOC) was squeezed into the X6100's 800/480 */
+  function screenSize(w, h) {
+    cv.width = w; cv.height = h;
+    $("#screen").toggleClass("portrait", h > w);
+    if (h <= w) screenEl.style.aspectRatio = w + "/" + h; else screenEl.style.removeProperty("aspect-ratio");
+  }
   link = RadioLink.create({
     url: function() {
       if (FUNNEL) { conf = {enabled: true, tci_enabled: true}; return wsUrl("remote"); }   /* no web server out there */
@@ -238,7 +250,7 @@
     onText: function(t) {
       const w = t.split(" "), sp = t.indexOf(" "), body = sp < 0 ? "" : t.slice(sp + 1);
       if (ses.onText(w[0], body)) return;             /* role, ctl, paired, tx, sessions */
-      if (w[0] === "size") { cv.width = +w[1]; cv.height = +w[2]; $("#screen").toggleClass("portrait", +w[2] > +w[1]); }
+      if (w[0] === "size") screenSize(+w[1], +w[2]);
       else if (w[0] === "keys") keysHave(w.slice(1));   /* the keys this radio has, and so its layout (the X6200 has no PRE, V/M, AGC or LOCK) */
       else if (w[0] === "err") { if (!ptt.err(body)) status(body, true, ses.holds(body)); }
     },
@@ -336,17 +348,22 @@
   /* The radio names its keys: the page shows those, laid out as that radio has them (#318). Without a LOCK key
    * it is the X6200. Remembered in this browser, so the page opens in that radio's layout the next time */
   const X6200_KEYS = ["POWER", "GEN", "APP", "KEY", "PTT", "BAND_DOWN", "BAND_UP", "MSG", "DFN", "DFL", "AM", "CW", "SSB", "F1", "F2", "F3", "AB", "ATU", "FST", "F4", "F5"];
+  const GSOC_KEYS = ["F", "PO", "ATU", "BAND_DOWN", "AGC", "BAND_UP", "LOCK", "MODE", "PTT"];
+  let gsoc = false;   /* its layout shown: the left knob's BW in the MFK's place, its press MODE */
   function keysShow(names) {
     document.querySelectorAll("[data-key]").forEach(function(el) { el.hidden = names.indexOf(el.dataset.key) < 0; });
     const x6200 = names.indexOf("LOCK") < 0;
+    gsoc = names.indexOf("PO") >= 0;
     document.getElementById("rm").classList.toggle("x6200", x6200);
-    return x6200;
+    document.getElementById("rm").classList.toggle("gsoc", gsoc);
+    document.querySelector("#vol .ring").dataset.push = gsoc ? "LOCK" : "VOL";
+    return gsoc ? "gsoc" : x6200 ? "x6200" : "x6100";
   }
   function keysHave(names) {
-    const x6200 = keysShow(names);
-    try { localStorage.setItem("remote_radio", x6200 ? "x6200" : "x6100"); } catch (e) {}
+    const radio = keysShow(names);
+    try { localStorage.setItem("remote_radio", radio); } catch (e) {}
   }
-  try { if (localStorage.getItem("remote_radio") === "x6200") keysShow(X6200_KEYS); } catch (e) {}
+  try { const radio = localStorage.getItem("remote_radio"); if (radio === "x6200") keysShow(X6200_KEYS); else if (radio === "gsoc") keysShow(GSOC_KEYS); } catch (e) {}
   document.querySelectorAll("[data-key]").forEach(function(el) {
     const name = el.dataset.key;
     /* PTT: held, or tapped on and off (PTT options, #241) */
@@ -358,7 +375,7 @@
   window.addEventListener("blur", releaseAll);
 
   /* ---- Knobs ---- */
-  const knobAcc = {main: 0, vol: 0, mfk: 0};
+  const knobAcc = {main: 0, vol: 0, mfk: 0, sql: 0, bw: 0, cnt: 0};
   let knobTimer = null;
   function knob(name, steps) {
     knobAcc[name] += steps;
@@ -382,15 +399,16 @@
    * the key goes down and stays down until the release, for the radio's long press. A drag past the slop is a
    * turn and never a push, and once pushed the ring does not turn until it is let go */
   const PUSH_SLOP = 6, PUSH_HOLD_MS = 250, PUSH_TAP_MS = 80;
-  ["main", "vol", "mfk"].forEach(function(name) {
-    const ring = document.querySelector("#" + name + " .ring"), push = ring.dataset.push || null;
+  ["main", "vol", "mfk", "bw"].forEach(function(name) {
+    const ring = document.querySelector("#" + name + " .ring");
+    let push = ring.dataset.push || null;     /* VOL's is LOCK on the GSOC (keysShow) */
     const perDetent = name === "main" ? 10 : 15;       /* degrees of drag per detent */
     let last = null, acc = 0, x0 = 0, y0 = 0, turning = false, pushed = false, holdTimer = null;
     const angle = function(e) { const r = ring.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI; };
     const noHold = function() { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } };
     ring.addEventListener("pointerdown", function(e) {
       e.preventDefault(); ring.setPointerCapture(e.pointerId); last = angle(e); acc = 0;
-      x0 = e.clientX; y0 = e.clientY; turning = !push; pushed = false; noHold();
+      push = ring.dataset.push || null; x0 = e.clientX; y0 = e.clientY; turning = !push; pushed = false; noHold();
       if (push) holdTimer = setTimeout(function() { holdTimer = null; if (last !== null && !turning) { pushed = true; keyDown(push, ring); } }, PUSH_HOLD_MS);
     });
     ring.addEventListener("pointermove", function(e) {
@@ -421,19 +439,20 @@
    * the MFK. Space on the PTT button itself is PTT ---- */
   const keyMap = {F1: "F1", F2: "F2", F3: "F3", F4: "F4", F5: "F5", Enter: "MFK", " ": "PTT"};
   const pttEl = document.getElementById("pttbtn");
+  function keyName(n) { return gsoc && n === "MFK" ? "MODE" : n; }   /* the GSOC's left knob press in the MFK's place */
   document.addEventListener("keydown", function(e) {
     if (!RadioSession.forRadio(e, pttEl)) return;
-    if (e.key in keyMap) { e.preventDefault(); if (e.repeat) return; const n = keyMap[e.key]; if (n === "PTT") ptt.press(); else keyDown(n); return; }
+    if (e.key in keyMap) { e.preventDefault(); if (e.repeat) return; const n = keyName(keyMap[e.key]); if (n === "PTT") ptt.press(); else keyDown(n); return; }
     const step = e.shiftKey ? 10 : 1;
     if (e.key === "ArrowRight") { e.preventDefault(); knob("main", step); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); knob("main", -step); }
     else if (e.key === "]") { e.preventDefault(); knob("vol", 1); }
     else if (e.key === "[") { e.preventDefault(); knob("vol", -1); }
-    else if (e.key === "PageUp") { e.preventDefault(); knob("mfk", 1); }
-    else if (e.key === "PageDown") { e.preventDefault(); knob("mfk", -1); }
+    else if (e.key === "PageUp") { e.preventDefault(); knob(gsoc ? "bw" : "mfk", 1); }
+    else if (e.key === "PageDown") { e.preventDefault(); knob(gsoc ? "bw" : "mfk", -1); }
   });
   document.addEventListener("keyup", function(e) {
-    if (e.key in keyMap) { const n = keyMap[e.key]; if (n === "PTT") ptt.release(); else keyUp(n); }
+    if (e.key in keyMap) { const n = keyName(keyMap[e.key]); if (n === "PTT") ptt.release(); else keyUp(n); }
   });
   /* A button of the page clicked or tapped gives the keyboard back to the page, as Safari does anyway: it
    * takes no focus and clears it from the picture list, a button reached with Tab or the open menu at the

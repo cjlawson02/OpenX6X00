@@ -78,6 +78,7 @@
 .keys { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
 .keys .wide { grid-column:1 / -1; }
 .keys .b { height:40px; }
+.keys[hidden] { display:none; }   /* the other radio's (keysHave) */
 .knobs { display:flex; gap:6px; }
 .knobs .b { flex:1; }
 .screen { aspect-ratio:800/480; background:#000; border-radius:8px; overflow:hidden; }
@@ -276,7 +277,7 @@ body.app h2, body.app #intro, body.app #intro-away { display:none; }
     </div>
     <div class="tab cur" id="tab-spots"><ul class="spots" id="spots"><li style="display:block;color:var(--pd)">No spots yet: the cluster is set on the radio (Cluster page).</li></ul></div>
     <div class="tab" id="tab-keys">
-      <div class="keys">
+      <div class="keys" id="keys-x6100">
         <button class="b" data-key="F1">F1</button><button class="b" data-key="F2">F2</button><button class="b" data-key="F3">F3</button>
         <button class="b" data-key="F4">F4</button><button class="b" data-key="F5">F5</button><button class="b" data-key="POWER" title="Tap: screen on/off">POWER</button>
         <button class="b" data-key="GEN">GEN</button><button class="b" data-key="KEY">KEY</button><button class="b" data-key="DFN">DFN</button>
@@ -287,6 +288,16 @@ body.app h2, body.app #intro, body.app #intro-away { display:none; }
         <div class="wide knobs"><button class="b" data-knob="vol" data-step="-1">VOL −</button><button class="b" data-key="VOL">VOL push</button><button class="b" data-knob="vol" data-step="1">VOL +</button></div>
         <div class="wide knobs"><button class="b" data-knob="mfk" data-step="-1">MFK −</button><button class="b" data-key="MFK">MFK push</button><button class="b" data-knob="mfk" data-step="1">MFK +</button></div>
         <div class="wide knobs"><button class="b" data-key="BAND_DOWN">BAND ▼</button><button class="b" data-key="LOCK">LOCK</button><button class="b" data-key="BAND_UP">BAND ▲</button></div>
+      </div>
+      <!-- The GSOC's panel ("keys" with PO): F, Po, ATU, the three user keys, VOL (inner the volume, outer squelch, its
+           press LOCK) and the left knob (inner HI/BW, outer LOW/CNT, its press MODE) -->
+      <div class="keys" id="keys-gsoc" hidden>
+        <button class="b" data-key="F" title="Tap: the main knob for RIT; hold: XIT">F</button><button class="b" data-key="PO" title="Tap: the main knob for TX power; hold: RF gain">Po</button><button class="b" data-key="ATU">ATU</button>
+        <button class="b" data-key="BAND_DOWN">◀ BAND</button><button class="b" data-key="AGC">■ AGC</button><button class="b" data-key="BAND_UP">BAND ▶</button>
+        <div class="wide knobs"><button class="b" data-knob="vol" data-step="-1">VOL −</button><button class="b" data-key="LOCK">LOCK</button><button class="b" data-knob="vol" data-step="1">VOL +</button></div>
+        <div class="wide knobs"><button class="b" data-knob="sql" data-step="-1">SQL −</button><button class="b" data-knob="sql" data-step="1">SQL +</button></div>
+        <div class="wide knobs"><button class="b" data-knob="bw" data-step="-1">BW −</button><button class="b" data-key="MODE">MODE</button><button class="b" data-knob="bw" data-step="1">BW +</button></div>
+        <div class="wide knobs"><button class="b" data-knob="cnt" data-step="-1">CNT −</button><button class="b" data-knob="cnt" data-step="1">CNT +</button></div>
       </div>
       <p class="sub" style="margin:10px 0 0;font-size:12px">The radio's front keys, for its menus and apps: what they open shows on the Screen tab.</p>
     </div>
@@ -1072,7 +1083,7 @@ body.app h2, body.app #intro, body.app #intro-away { display:none; }
   let drawing = false, pending = null;
   function screenFrame(buf) {
     const dv = new DataView(buf), w = dv.getUint16(0, true), h = dv.getUint16(2, true);
-    if (scv.width !== w || scv.height !== h) { scv.width = w; scv.height = h; }
+    if (scv.width !== w || scv.height !== h) { scv.width = w; scv.height = h; scv.parentNode.style.aspectRatio = w + "/" + h; }   /* the GSOC's 1024x600 */
     const blob = new Blob([buf.slice(8)], {type: "image/jpeg"});
     if (drawing) { pending = blob; return; }
     drawing = true;
@@ -1151,7 +1162,7 @@ body.app h2, body.app #intro, body.app #intro-away { display:none; }
     tuneWant = null; if (tuneTimer) { clearTimeout(tuneTimer); tuneTimer = null; }
     wantDrop();                                       /* nothing asked can be confirmed now */
     const hadKeys = Object.keys(held).length > 0 || ptt.state === "tx" || ptt.state === "requesting";
-    Object.keys(held).forEach(function(k) { keyUp(k, document.querySelector('[data-key="' + k + '"]')); });
+    Object.keys(held).forEach(function(k) { keyUp(k, keyEl(k)); });
     ptt.lost(why);
     xtune.lost();                                     /* no renewal gets through: the radio stops it within 3 s */
     return hadKeys;
@@ -1222,11 +1233,16 @@ body.app h2, body.app #intro, body.app #intro-away { display:none; }
 
   /* ---- Keys (the Keys tab, PTT) ---- */
   const held = {};
+  /* The key of the panel shown: BAND, AGC, LOCK are on both radios' panels, one hidden (keysHave) */
+  function keyEl(name) { return Array.prototype.find.call(document.querySelectorAll('[data-key="' + name + '"]'), function(el) { return !el.closest("[hidden]"); }) || null; }
   function keyDown(name, el) { if (held[name] || !act("key " + name + " 1")) return; held[name] = true; if (el) el.classList.add("down"); if (navigator.vibrate) navigator.vibrate(8); }
   function keyUp(name, el) { if (!held[name]) return; delete held[name]; send("key " + name + " 0"); if (el) el.classList.remove("down"); }
-  function releaseAll() { Object.keys(held).forEach(function(k) { keyUp(k, document.querySelector('[data-key="' + k + '"]')); }); ptt.release(); }
+  function releaseAll() { Object.keys(held).forEach(function(k) { keyUp(k, keyEl(k)); }); ptt.release(); }
   /* "keys NAME ...": the keys this radio has; the others are greyed (the X6200 has no PRE, V/M, AGC or LOCK key) */
-  function keysHave(names) { document.querySelectorAll("[data-key]").forEach(function(el) { const no = names.indexOf(el.dataset.key) < 0; el.disabled = no; el.title = no ? "Not on this radio" : el.title; }); }
+  function keysHave(names) {
+    const gsoc = names.indexOf("PO") >= 0;
+    $("#keys-x6100").prop("hidden", gsoc); $("#keys-gsoc").prop("hidden", !gsoc);
+    document.querySelectorAll("[data-key]").forEach(function(el) { const no = names.indexOf(el.dataset.key) < 0; el.disabled = no; el.title = no ? "Not on this radio" : el.title; }); }
   document.querySelectorAll("[data-key], #pttbtn").forEach(function(el) {
     const name = el.dataset.key || "PTT";
     /* PTT: held, or tapped on and off (PTT options, #241) */
