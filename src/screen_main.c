@@ -2397,7 +2397,7 @@ static void build(void) {
     freq_strip_init(obj);
     meter = meter_init(obj);    /* deck: on the frequency panel */
 #ifdef BOARD_BASE_DETACHABLE
-    base_link_build(obj, meter);
+    base_link_build(obj, meter, spectrum, waterfall);
 #endif
     /* Amber Trey: the display over everything above the buttons, the spectrum strip and its edge
      * frequencies over it */
