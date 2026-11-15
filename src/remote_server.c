@@ -1026,7 +1026,12 @@ static void panel_apply(void *arg) {
         case P_NR:     param_i_set(cfg_nr, p->a != 0); break;
         case P_SQL:    param_i_set(cfg_squelch, LV_CLAMP(0, p->a, BOARD_SQL_MAX)); break;
         case P_RFG:    param_i_set(cfg_rfgain, LV_CLAMP(0, p->a, BOARD_RFG_MAX)); break;
-        case P_VOL:    param_i_set(cfg_volume, LV_CLAMP(0, p->a, BOARD_VOL_MAX)); break;
+        case P_VOL:
+            if (!radio_vol_locked())
+                param_i_set(cfg_volume, LV_CLAMP(0, p->a, BOARD_VOL_MAX));
+            else
+                atomic_store(&state_resend, true);  /* the page's slider back where it is */
+            break;
         case P_PWR:    cfg_pwr_set(LV_CLAMP((int)(BOARD_PWR_MIN * 10), p->a, (int)(BOARD_PWR_MAX * 10)) / 10.0f); break;
         case P_STEP:   param_i_set(cfg_mode_freq_step, LV_CLAMP(1, p->a, CFG_FREQ_STEP_MAX)); break;
         case P_ZOOM:   param_i_set(cfg_mode_zoom, LV_CLAMP(1, p->a, 8)); break;

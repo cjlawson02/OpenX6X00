@@ -7,6 +7,12 @@
  *  Disconnected NO_DATA_MS after its last packet (radio_no_data), and from the start until the first one. On the GUI
  *  thread, by a timer: radio_no_data reads the radio thread's packet time atomically.
  *
+ *  Without it the dial, the band, the mode and A/B are held as an app holds them (main_screen_board_hold: the knobs,
+ *  the keyboard, touch tuning and the remote already respect that), and the volume (radio_hold_vol): a turn with
+ *  nothing to hear it by made the body loud when it came back. What else is set is kept and goes to the body with
+ *  its first packet: each exchange carries the whole state. TX is refused meanwhile (no_data_refused). Before the
+ *  first packet it is held too, but "Waiting for G90" for NO_DATA_MS: a body there answers in well under it.
+ *
  *  Copyright (c) 2026 Chris Lawson
  */
 
@@ -14,9 +20,11 @@
 
 #ifdef BOARD_BASE_DETACHABLE
 
+#include "base_guard.h"
 #include "button_bar.h"
 #include "gui_styles.h"
 #include "radio.h"
+#include "screen_main.h"
 #include "theme.h"
 
 #define POLL_MS     250
@@ -40,7 +48,12 @@ static lv_obj_t   *label;
 static lv_obj_t   *shade;   /* over the spectrum and the waterfall, which stand still without the body */
 static lv_obj_t   *spectrum;
 static lv_timer_t *timer;
-static int8_t      shown = -1;  /* -1: not shown yet on these widgets */
+static uint32_t    start;       /* the first build: the GUI's start */
+static bool        ever_up;     /* a packet came */
+static bool        held;
+static int8_t      shown = -1;  /* LINK_*, -1: not shown yet on these widgets */
+
+enum { LINK_WAIT, LINK_UP, LINK_AWAY };
 
 /* From the spectrum's top (with the spectrum off, under the strip it hides behind) to the buttons, or the bottom
  * with them hidden: again on each poll, the layout may change while it is shown */
@@ -66,18 +79,26 @@ static lv_obj_t *box_make(lv_obj_t *screen, lv_coord_t x, lv_coord_t y, lv_coord
 }
 
 static void poll(lv_timer_t *t) {
-    int8_t up = !radio_no_data();
+    bool   up = !radio_no_data();
+    int8_t link;
 
     (void)t;
-    if (!up) shade_place();
-    if (up == shown) return;
-    shown = up;
-    lv_label_set_text(label, up ? "Connected to G90" : "G90 disconnected");
-    lv_obj_set_style_text_color(label, up ? TC(ok) : TC(warn), 0);
-    if (up) {
-        lv_obj_add_flag(shade, LV_OBJ_FLAG_HIDDEN);
-    } else {
+    ever_up |= up;
+    link = up ? LINK_UP : ever_up || lv_tick_elaps(start) >= NO_DATA_MS ? LINK_AWAY : LINK_WAIT;
+    if (held != !up) {
+        held = !up;
+        main_screen_board_hold(held);
+        radio_hold_vol(held);
+    }
+    if (link == LINK_AWAY) shade_place();
+    if (link == shown) return;
+    shown = link;
+    lv_label_set_text(label, link == LINK_UP ? "Connected to G90" : link == LINK_AWAY ? "G90 disconnected" : "Waiting for G90");
+    lv_obj_set_style_text_color(label, link == LINK_UP ? TC(ok) : TC(warn), 0);
+    if (link == LINK_AWAY) {
         lv_obj_clear_flag(shade, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(shade, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -130,8 +151,11 @@ void base_link_build(lv_obj_t *screen, lv_obj_t *meter, lv_obj_t *spectrum_obj, 
         lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 6, -4);
     }
     shown = -1;
+    if (!timer) {
+        start = lv_tick_get();
+        timer = lv_timer_create(poll, POLL_MS, NULL);
+    }
     poll(NULL);
-    if (!timer) timer = lv_timer_create(poll, POLL_MS, NULL);
 }
 
 #endif

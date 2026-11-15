@@ -79,6 +79,9 @@ bool main_screen_freq_app_locked(void);
 void main_screen_lock_band(bool lock);
 void main_screen_lock_mode(bool lock);
 void main_screen_lock_ab(bool lock);
+/* The frequency, band, mode and A/B held by the board itself, apart from the apps' holds: an app that lets go leaves
+ * it, and it leaves theirs (base_link.c: a body on its cable away) */
+void main_screen_board_hold(bool on);
 bool main_screen_freq_locked();
 bool main_screen_band_locked();
 bool main_screen_mode_locked();

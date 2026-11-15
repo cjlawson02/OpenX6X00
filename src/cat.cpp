@@ -747,7 +747,7 @@ static Frame *process_req(const Frame *req) {
                         if (data_size == 1) {
                             resp->set_payload_len(4);
                             to_bcd_be(&resp->data[1], cfg_sm.p_volume.get() * 255 / BOARD_VOL_MAX, 3);
-                        } else if (data_size == 3) {
+                        } else if (data_size == 3 && !radio_vol_locked()) {
                             cfg_sm.p_volume.set(from_bcd_be(&req->data[1], 3) * BOARD_VOL_MAX / 255);
                         }
                         break;

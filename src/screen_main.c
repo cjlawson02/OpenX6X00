@@ -177,7 +177,15 @@ static void wf_tag_update(void);
  * never (dial_lock.h, #342) */
 static SubjectInt   *freq_lock;
 static dial_lock_t  dial;
-static bool         band_lock, mode_lock, ab_lock;
+static bool         board_dial;     /* the board's own hold of the dial (main_screen_board_hold), beside the app's */
+static uint8_t      band_lock, mode_lock, ab_lock;    /* who holds each: HOLD_APP, HOLD_BOARD */
+
+#define HOLD_APP    1u
+#define HOLD_BOARD  2u      /* a board's own (main_screen_board_hold): an app's release leaves it */
+
+static void hold(uint8_t *h, uint8_t who, bool on) {
+    *h = on ? *h | who : *h & ~who;
+}
 static press_action_t last_app;     /* the app opened last: a digital one while radio_digi_cap() */
 
 static lv_timer_t *timer_once(lv_timer_cb_t cb, uint32_t ms) {
@@ -195,7 +203,7 @@ static bool cw_mode(void) {
 
 /* The scale and the frequency strip follow the subject */
 static void freq_lock_update(void) {
-    subject_i_set(freq_lock, dial_lock_on(&dial));
+    subject_i_set(freq_lock, dial_lock_on(&dial) || board_dial);
     freq_strip_set_lock(dial.user);
 }
 
@@ -2100,20 +2108,29 @@ bool main_screen_freq_user_locked(void) {
 }
 
 bool main_screen_freq_app_locked(void) {
-    return dial.app;
+    return dial.app || board_dial;
 }
 
 void main_screen_lock_band(bool lock) {
-    band_lock = lock;
+    hold(&band_lock, HOLD_APP, lock);
 }
 
 void main_screen_lock_mode(bool lock) {
-    mode_lock = lock;
-    info_lock_mode(lock);
+    hold(&mode_lock, HOLD_APP, lock);
+    info_lock_mode(mode_lock);
 }
 
 void main_screen_lock_ab(bool lock) {
-    ab_lock = lock;
+    hold(&ab_lock, HOLD_APP, lock);
+}
+
+void main_screen_board_hold(bool on) {
+    board_dial = on;
+    hold(&band_lock, HOLD_BOARD, on);
+    hold(&mode_lock, HOLD_BOARD, on);
+    hold(&ab_lock, HOLD_BOARD, on);
+    freq_lock_update();
+    info_lock_mode(mode_lock);
 }
 
 bool main_screen_freq_locked() {
