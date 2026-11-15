@@ -53,6 +53,7 @@
 #include "radio_controls.h"
 #include "msg_box.h"
 #include "info_bar.h"
+#include "scheduler.h"
 #include "cfg/cfg_api.h"
 #include "cfg/computed_api.h"
 #include "lvgl/lvgl.h"
@@ -62,6 +63,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -297,7 +299,8 @@ static void band_key(bool up) {
                         (int)(hz / 1000000), (int)(hz % 1000000));
 }
 
-static void on_key(const struct input_event *in) {
+/* local: the panel itself, which takes control back from a remote (ctl_local_input) */
+static void on_key(const struct input_event *in, bool local) {
     size_t i;
 
     if (in->value == 2) {
@@ -314,7 +317,7 @@ static void on_key(const struct input_event *in) {
         }
         return;
     }
-    if (in->value == 1) {
+    if (in->value == 1 && local) {
         ctl_local_input();
     }
 
@@ -402,10 +405,64 @@ static void keys_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
     while (read(keys_fd, &in, sizeof(in)) == (ssize_t)sizeof(in)) {
         data->continue_reading = true;
         if (in.type == EV_KEY) {
-            on_key(&in);
+            on_key(&in, true);
         }
     }
     /* Nothing is handed to LVGL as a key: KEY_UP would move the focus. */
+}
+
+/* The remote's: a knob's detents in one job (64 places in the queue, up to 50 detents a turn), a release on the
+ * urgent reserve (one lost left the key down) */
+typedef struct {
+    uint16_t code;
+    int16_t  n;     /* detents, each a press and a release; for a key: 1 down, 0 up */
+    bool     turn;
+} remote_job_t;
+
+static void remote_job_cb(void *arg) {
+    remote_job_t      *j = arg;
+    struct input_event in = {.type = EV_KEY, .code = j->code};
+
+    for (int i = 0; i < (j->turn ? j->n : 1); i++) {
+        in.value = j->turn ? 1 : j->n;
+        on_key(&in, false);
+        if (j->turn) {
+            in.value = 0;
+            on_key(&in, false);
+        }
+    }
+}
+
+void board_input_key(uint16_t code, bool down) {
+    remote_job_t j = {.code = code, .n = down};
+
+    if (down) {
+        scheduler_put(remote_job_cb, &j, sizeof(j));
+    } else {
+        scheduler_put_urgent(remote_job_cb, &j, sizeof(j));
+    }
+}
+
+/* A detent is a key: main, VOL inner and outer (squelch), the left knob's inner (BW) and outer (center) */
+bool board_input_knob(const char *name, int n) {
+    static const struct {
+        const char *name;
+        uint16_t    cw, ccw;
+    } knobs[] = {
+        {"main", KEY_UP, KEY_DOWN}, {"vol", KEY_VOLUMEUP, KEY_VOLUMEDOWN}, {"sql", KEY_F18, KEY_F19},
+        {"bw", KEY_F13, KEY_F14},   {"cnt", KEY_F15, KEY_F16},
+    };
+
+    for (size_t k = 0; k < sizeof(knobs) / sizeof(knobs[0]); k++) {
+        if (!strcasecmp(knobs[k].name, name)) {
+            remote_job_t j = {.code = n > 0 ? knobs[k].cw : knobs[k].ccw, .n = (int16_t)LV_MIN(abs(n), 50),
+                              .turn = true};
+
+            if (n) scheduler_put(remote_job_cb, &j, sizeof(j));
+            return true;
+        }
+    }
+    return false;
 }
 
 /* The GT911's coordinates onto the panel. absinfo is the kernel's range. */
