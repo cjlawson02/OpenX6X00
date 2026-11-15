@@ -30,6 +30,7 @@
 #include "board.h"
 #include "cw_tune_view.h"
 #include "info_bar.h"
+#include "base_link.h"
 #include "smeter.h"
 #include "tx_meters.h"
 #include "mfk_control.h"
@@ -2580,6 +2581,9 @@ static void build(void) {
     clock_init(obj);    /* deck: over the info rows */
     freq_strip_init(obj);
     meter = meter_init(obj);    /* deck: on the frequency panel */
+#ifdef BOARD_BASE_DETACHABLE
+    base_link_build(obj, meter);
+#endif
     /* Amber Trey: the display over everything above the buttons, the spectrum strip and its edge
      * frequencies over it */
     if (theme_amber) {

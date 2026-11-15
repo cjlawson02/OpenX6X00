@@ -78,8 +78,8 @@
 #endif
 
 #ifdef HW_BACKEND_G90
-/* The body on a DE-9 cable, not in the case: the GUI starts without it (radio_init), the S-meter
- * says whether it answers (smeter.c), and the "No data from the base" notice is not shown */
+/* The body on a DE-9 cable, not in the case: the GUI starts without it (radio_init), a box by the
+ * S-meter says whether it answers (base_link.c), and the "No data from the base" notice is not shown */
 #define BOARD_BASE_DETACHABLE   1
 #endif
 
