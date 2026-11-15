@@ -79,6 +79,12 @@ const uint32_t * drm_wf_pixels(void);
 /* A landscape 800x480 ARGB copy of the GUI (snapshot, recorder) completed
  * with the waterfall under its transparent parts; nothing without planes */
 void drm_compose_landscape(uint32_t *px);
+/* The strip planes' pictures kept in RAM as well, while held (the remote watching), for under_row: their buffers are
+ * uncached, slow to read back. Each strip's next present is whole, to fill it. GUI thread */
+void drm_mirror_hold(bool on);
+/* What shows under the GUI, landscape LAND_W x LAND_H XRGB, into under: drm_blend_under() of the GUI over it is
+ * drm_compose_landscape(), which another thread can do then. Nothing without planes. GUI thread */
+void drm_under_landscape(uint32_t *under);
 
 #endif  /*USE_DRM*/
 

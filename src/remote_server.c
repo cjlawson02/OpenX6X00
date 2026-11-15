@@ -292,10 +292,13 @@ static atomic_bool state_resend;    /* a "set" dropped on the LVGL thread: the s
 static int         wake_fd[2] = {-1, -1};
 static int         dev_keypad = -1, dev_power = -1, dev_main = -1, dev_vol = -1, dev_mfk = -1;
 
-/* The screen: shadow (LVGL thread), frame (handed over), enc and prev (encoder thread) */
+/* The screen: shadow (LVGL thread), frame (handed over), enc and prev (encoder thread). With DRM planes, what shows
+ * under the GUI goes with frame and enc (frame_under, enc_under): the encoder thread blends it in */
 static pthread_mutex_t fmut = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  fcond = PTHREAD_COND_INITIALIZER;
 static uint8_t        *shadow, *frame, *enc, *prev;
+static uint32_t       *frame_under, *enc_under;
+static bool            frame_has_under, enc_has_under;
 static int32_t         sw, sh;          /* the shadow's size: the display's */
 static int32_t         fw, fh, ew, eh, pw, ph;
 static bool            frame_ready, dirty;
@@ -2632,6 +2635,9 @@ static void tick_cb(lv_timer_t *t) {
     if (any != had_viewers) {
         had_viewers = any;
         backlight_viewers(any);     /* drawn while dark for them */
+#if USE_DRM
+        drm_mirror_hold(any);       /* the strips read back from RAM, not their uncached buffers */
+#endif
         if (any) {
             /* the shadow starts empty: everything drawn once */
             lv_obj_invalidate(lv_scr_act());
@@ -2646,14 +2652,21 @@ static void tick_cb(lv_timer_t *t) {
         size_t bytes = (size_t)sw * sh * 4;
         if (!frame || fw != sw || fh != sh) {
             free(frame);
+            free(frame_under);
             frame = malloc(bytes);
+            frame_under = malloc(bytes);
             fw = sw, fh = sh;
         }
         if (frame) {
             memcpy(frame, shadow, bytes);
+            frame_has_under = false;
 #if USE_DRM
-            if (sw == BOARD_DISP_W && sh == BOARD_DISP_H)
-                drm_compose_landscape((uint32_t *)frame);   /* + the waterfall plane */
+            /* the waterfall and spectrum planes under it: gathered here (from RAM, drm_mirror_hold), blended by the
+             * encoder thread. The GUI thread did both, reading the planes' uncached buffers: 73 % of a core */
+            if (frame_under && sw == BOARD_DISP_W && sh == BOARD_DISP_H && drm_wf_pixels()) {
+                drm_under_landscape(frame_under);
+                frame_has_under = true;
+            }
 #endif
             frame_ready = true;
             dirty       = false;
@@ -2701,13 +2714,19 @@ static void *encoder_thread(void *arg) {
         while (!frame_ready)
             pthread_cond_wait(&fcond, &fmut);
         /* the buffers change places, each with its size: LVGL fills the old enc next */
-        uint8_t *tmp = enc;
-        int32_t  tw = ew, th = eh;
-        enc = frame, ew = fw, eh = fh;
-        frame = tmp, fw = tw, fh = th;
+        uint8_t  *tmp = enc;
+        uint32_t *tmp_under = enc_under;
+        int32_t   tw = ew, th = eh;
+        enc = frame, ew = fw, eh = fh, enc_under = frame_under, enc_has_under = frame_has_under;
+        frame = tmp, fw = tw, fh = th, frame_under = tmp_under;
         int32_t w = ew, h = eh;
         frame_ready = false;
         pthread_mutex_unlock(&fmut);
+#if USE_DRM
+        if (enc_has_under)
+            for (int32_t y = 0; y < h; y++)
+                drm_blend_under((uint32_t *)enc + (size_t)y * w, (uint32_t *)enc + (size_t)y * w, enc_under + (size_t)y * w, w);
+#endif
 
         if (!atomic_load(&nclients))
             continue;

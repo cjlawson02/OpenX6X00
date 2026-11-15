@@ -604,10 +604,39 @@ typedef struct {
     bool        both;       /* rows w .. 2w - 1 hold it too */
     bool        on;         /* enabled (or to be, at the next commit) */
     bool        setup;      /* the next commit places it (position, size, zpos) */
+    uint32_t    *mirror;    /* its picture in RAM too while held (drm_mirror_hold): src rows, as src */
+    int32_t     mirror_w;
+    bool        mirror_ok;  /* holds the picture: from a whole one on, each turn's rows added */
 } splane_t;
 static splane_t splanes[MAX_SPLANES];
 static int      nsplanes;
 static bool     splanes_bad;    /* a commit placing them failed: strips on the primary plane again */
+static int      mirror_holds;
+
+/* A buffer is uncached memory: read back for a picture of the screen (under_row), its rows cost the remote's GUI
+ * thread two thirds of its time. While mirrored, a whole picture fills the mirror and a turn its new rows */
+static bool mirror_alloc(splane_t *s) {
+    if (s->mirror_w != s->w) {
+        free(s->mirror);
+        s->mirror = malloc((size_t) s->w * PANEL_W * 4);
+        s->mirror_w = s->mirror ? s->w : 0;
+    }
+    return s->mirror != NULL;
+}
+
+static void mirror_full(splane_t *s, const uint32_t *src) {
+    s->mirror_ok = mirror_holds && mirror_alloc(s);
+    if (s->mirror_ok) {
+        memcpy(s->mirror, src, (size_t) s->w * PANEL_W * 4);
+    }
+}
+
+static void mirror_free(splane_t *s) {
+    free(s->mirror);
+    s->mirror = NULL;
+    s->mirror_w = 0;
+    s->mirror_ok = false;
+}
 
 /* n rows of src (PANEL_W pixels each) into buf from row y */
 static void copy_rows(struct drm_buffer *buf, int32_t y, const uint32_t *src, int32_t n) {
@@ -651,6 +680,7 @@ static splane_t * splane_for(int32_t x, int32_t w) {
         s->x = x;
         s->w = w;
         s->valid = false;
+        s->mirror_ok = false;
         s->setup = true;
     }
     return s;
@@ -668,6 +698,7 @@ static void splane_full(splane_t *s, const uint32_t *src, int32_t head) {
     s->win = 0;
     s->valid = true;
     s->both = false;
+    mirror_full(s, src);
     if (!s->on) {
         s->on = true;
         s->setup = true;
@@ -696,6 +727,9 @@ static void splane_turn(splane_t *s, const uint32_t *src, int32_t head, int32_t 
 
         copy_rows(buf, c, src + (size_t) r * PANEL_W, 1);
         copy_rows(buf, c + w, src + (size_t) r * PANEL_W, 1);
+        if (s->mirror_ok) {
+            memcpy(s->mirror + (size_t) r * PANEL_W, src + (size_t) r * PANEL_W, PANEL_W * 4);
+        }
     }
     s->win = (head - s->base + w) % w;
     s->pl.ready = true;
@@ -752,6 +786,7 @@ void drm_wf_back_done(int32_t x, int32_t w) {
     s->win = 0;
     s->valid = true;        /* (the RAM picture is not this one: its next present must be whole, not a turn) */
     s->both = false;
+    s->mirror_ok = false;   /* drawn straight into the buffer: read from there */
     if (!s->on) {
         s->on = true;
         s->setup = true;
@@ -932,6 +967,7 @@ static void splanes_fail(void) {
     err("strip planes refused, strips on the primary plane");
     splanes_bad = true;
     for (int i = 0; i < nsplanes; i++) {
+        mirror_free(&splanes[i]);
         splanes[i].w = 0;
         splanes[i].on = false;
         splanes[i].setup = false;
@@ -949,6 +985,9 @@ static const uint32_t * under_row(int32_t y) {
         if (s->on && s->valid && y >= s->x && y < s->x + s->w) {
             struct drm_buffer *b = &s->pl.bufs[s->pl.back];
 
+            if (s->mirror_ok) {     /* buffer row win + i holds src row ((win + i) % w + base) % w */
+                return s->mirror + (size_t) (((s->win + y - s->x) % s->w + s->base) % s->w) * PANEL_W;
+            }
             return (const uint32_t *) (b->map + (size_t) (s->win + y - s->x) * b->pitch);
         }
     }
@@ -1082,6 +1121,46 @@ void drm_blend_under(uint32_t *dst, const uint32_t *top, const uint32_t *bottom,
 
 const uint32_t * drm_wf_pixels(void) {
     return planes ? wf_shadow : NULL;
+}
+
+void drm_mirror_hold(bool on) {
+#if !BOARD_FB_ROTATE_90
+    mirror_holds += on ? 1 : -1;
+    for (int i = 0; i < nsplanes; i++) {
+        splane_t *s = &splanes[i];
+
+        if (!on) {
+            if (!mirror_holds) mirror_free(s);
+        } else if (!s->mirror_ok && s->on && s->valid && mirror_alloc(s)) {
+            /* From its buffer, once: a strip that stands still (no data from the base, the spectrum paused) is not
+             * presented again to fill it. Buffer row c (0 .. w - 1) holds src row (c + base) % w */
+            struct drm_buffer *b = &s->pl.bufs[s->pl.back];
+
+            for (int32_t c = 0; c < s->w; c++) {
+                memcpy(s->mirror + (size_t) ((c + s->base) % s->w) * PANEL_W, b->map + (size_t) c * b->pitch,
+                       PANEL_W * 4);
+            }
+            s->mirror_ok = true;
+        }
+    }
+#else
+    (void) on;
+#endif
+}
+
+void drm_under_landscape(uint32_t *under) {
+    if (!planes) {
+        return;
+    }
+    for (int32_t y = 0; y < LAND_H; y++) {
+#if BOARD_FB_ROTATE_90
+        for (int32_t x = 0; x < LAND_W; x++) {
+            under[y * LAND_W + x] = wf_shadow[(LAND_W - 1 - x) * PANEL_W + y];
+        }
+#else
+        memcpy(under + y * LAND_W, under_row(y), (size_t) LAND_W * 4);
+#endif
+    }
 }
 
 void drm_compose_landscape(uint32_t *px) {
