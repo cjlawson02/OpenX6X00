@@ -824,7 +824,7 @@ void radio_set_tx_freq(int32_t freq) {
 
 uint16_t radio_change_vol(int16_t df) {
     int32_t vol = param_i_get(cfg_volume);
-    if (df == 0) {
+    if (df == 0 || radio_vol_locked()) {
         return vol;
     }
 
@@ -1212,6 +1212,16 @@ bool radio_no_data(void) {
     uint64_t pack = atomic_load(&data_time);    /* before the clock: never a packet newer than now */
 
     return base_no_data(get_time(), pack, pack != 0);
+}
+
+static atomic_bool vol_held;
+
+void radio_hold_vol(bool on) {
+    atomic_store(&vol_held, on);
+}
+
+bool radio_vol_locked(void) {
+    return atomic_load(&vol_held);
 }
 
 bool radio_say_no_data(const char *what, bool now) {

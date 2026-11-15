@@ -156,8 +156,15 @@ static void wf_tag_update(void);
  * a key given Frequency lock in Settings > Keys), shown by LOCK in the frequency strip, or an open app's hold, which
  * ends with the app and leaves the user's lock as it was */
 static SubjectInt   *freq_lock;
-static bool         user_lock, app_lock;
-static bool         band_lock, mode_lock, ab_lock;
+static bool         user_lock;
+static uint8_t      app_lock, band_lock, mode_lock, ab_lock;    /* who holds each: HOLD_APP, HOLD_BOARD */
+
+#define HOLD_APP    1u
+#define HOLD_BOARD  2u      /* a board's own (main_screen_board_hold): an app's release leaves it */
+
+static void hold(uint8_t *h, uint8_t who, bool on) {
+    *h = on ? *h | who : *h & ~who;
+}
 static press_action_t last_app;     /* the app opened last: a digital one while radio_digi_cap() */
 
 static lv_timer_t *timer_once(lv_timer_cb_t cb, uint32_t ms) {
@@ -1969,7 +1976,7 @@ void main_screen_chord(int action) {
 
 /* An app's hold */
 void main_screen_lock_freq(bool lock) {
-    app_lock = lock;
+    hold(&app_lock, HOLD_APP, lock);
     freq_lock_update();
 }
 
@@ -1987,16 +1994,25 @@ bool main_screen_freq_app_locked(void) {
 }
 
 void main_screen_lock_band(bool lock) {
-    band_lock = lock;
+    hold(&band_lock, HOLD_APP, lock);
 }
 
 void main_screen_lock_mode(bool lock) {
-    mode_lock = lock;
-    info_lock_mode(lock);
+    hold(&mode_lock, HOLD_APP, lock);
+    info_lock_mode(mode_lock);
 }
 
 void main_screen_lock_ab(bool lock) {
-    ab_lock = lock;
+    hold(&ab_lock, HOLD_APP, lock);
+}
+
+void main_screen_board_hold(bool on) {
+    hold(&app_lock, HOLD_BOARD, on);
+    hold(&band_lock, HOLD_BOARD, on);
+    hold(&mode_lock, HOLD_BOARD, on);
+    hold(&ab_lock, HOLD_BOARD, on);
+    freq_lock_update();
+    info_lock_mode(mode_lock);
 }
 
 bool main_screen_freq_locked() {
