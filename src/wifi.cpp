@@ -99,6 +99,7 @@ static void eth_refresh_cb(lv_timer_t *t);
 static void wifi_radio_enable(bool on);
 static void wifi_device_autoconnect(bool on);
 static void wifi_rejoin_cb(GObject *client, GAsyncResult *result, gpointer user_data);
+static void wifi_off_disconnect_cb(GObject *dev, GAsyncResult *result, gpointer user_data);
 
 static void power_on_cb(lv_timer_t *t) {
     wifi_power_on();
@@ -236,7 +237,7 @@ void wifi_power_off() {
          * Not WiFi's rfkill: the G90's rtw88 USB adapter does not always come back from it (USB errors -71 at
          * the chip's power on, until it is replugged) */
         wifi_device_autoconnect(false);
-        nm_device_disconnect_async(device, NULL, NULL, NULL);
+        nm_device_disconnect_async(device, NULL, wifi_off_disconnect_cb, NULL);
         device_drop();      /* the same device comes back at power on: no second set of handlers */
     }
     params_bool_set(&params.wifi_enabled, false);
@@ -273,12 +274,32 @@ static void wifi_rejoin_cb(GObject *client, GAsyncResult *result, gpointer user_
     GError             *error = NULL;
     NMActiveConnection *ac = nm_client_activate_connection_finish(NM_CLIENT(client), result, &error);
 
-    if (ac) {
+    if (ac && !params.wifi_enabled.x) {
+        /* Off came while the join was asked for, its disconnect before the join: off again */
+        const GPtrArray *devs = nm_active_connection_get_devices(ac);
+
+        LV_LOG_USER("WiFi off during the join to %s: disconnecting again", nm_active_connection_get_id(ac));
+        if (devs && devs->len) {
+            nm_device_disconnect_async(NM_DEVICE(g_ptr_array_index(devs, 0)), NULL, NULL, NULL);
+        }
+        g_object_unref(ac);
+    } else if (ac) {
         LV_LOG_USER("WiFi on: joining %s", nm_active_connection_get_id(ac));
         g_object_unref(ac);
     } else {
         LV_LOG_USER("WiFi on: no saved network to join (%s)", error->message);
         g_error_free(error);
+    }
+}
+
+/* Off's disconnect done. On came meanwhile (a quick off and on): NetworkManager took the disconnect after on's
+ * autoconnect and blocked it, and on asked for no join while the old one was still up. On's part again */
+static void wifi_off_disconnect_cb(GObject *dev, GAsyncResult *result, gpointer user_data) {
+    nm_device_disconnect_finish(NM_DEVICE(dev), result, NULL);
+    if (params.wifi_enabled.x && device) {
+        LV_LOG_USER("WiFi on during off: joining again");
+        wifi_device_autoconnect(true);
+        nm_client_activate_connection_async(client, NULL, device, NULL, NULL, wifi_rejoin_cb, NULL);
     }
 }
 
