@@ -481,8 +481,13 @@ static lv_coord_t axis_to_px(int v, const struct input_absinfo *ax, lv_coord_t p
     return (lv_coord_t)((int64_t)(v - ax->minimum) * (pixels - 1) / span);
 }
 
+/* A touch is a use, as a key: the minutes start again. One that ends the screensaver or a screen dark by the time
+ * only wakes it, as a key does: the GUI under it sees nothing until the finger is lifted. A tap down and up between
+ * two reads (the loop sleeps up to 100 ms while idle) is still a press: pressed this read, released the next */
 static void touch_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
+    static bool        waking;
     struct input_event in;
+    bool               pressed = false;
 
     (void)drv;
     data->continue_reading = false;
@@ -494,11 +499,18 @@ static void touch_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
             touch_y = in.value;
         } else if (in.type == EV_KEY && (in.code == BTN_TOUCH || in.code == BTN_LEFT)) {
             touch_down = in.value != 0;
+            pressed |= touch_down;
         }
+    }
+    if (pressed && backlight_tick()) {
+        waking = true;
     }
     data->point.x = axis_to_px(touch_x, &abs_x, BOARD_DISP_W);
     data->point.y = axis_to_px(touch_y, &abs_y, BOARD_DISP_H);
-    data->state   = touch_down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    data->state   = (touch_down || pressed) && !waking ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    if (!touch_down) {
+        waking = false;
+    }
 }
 
 void board_input_open(void) {
