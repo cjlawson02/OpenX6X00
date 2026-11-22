@@ -74,7 +74,6 @@ enum {
     ACT_TUNE,       /* dir +1 / -1 */
     ACT_VOL,        /* dir */
     ACT_AGC,        /* one step, either detent */
-    ACT_MFK,        /* dir, or 0 for the press */
     ACT_BW,
     ACT_CENTER,
     ACT_SQL,        /* dir */
@@ -349,12 +348,6 @@ static void on_key(const struct input_event *in, bool local) {
     case ACT_BAND:
         if (in->value == 1) {
             band_key(map[i].dir > 0);
-        }
-        break;
-    case ACT_MFK:
-        if (in->value == 1) {
-            backlight_tick();
-            main_screen_mfk(map[i].dir);
         }
         break;
     case ACT_BW:

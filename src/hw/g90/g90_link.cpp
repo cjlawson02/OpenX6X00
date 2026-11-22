@@ -117,10 +117,6 @@ extern "C" const char *g90_link_follow_body(g90_link_t *link, uint8_t ver_major,
     return p == g90::Profile::V178 ? "1.78" : "1.79+";
 }
 
-extern "C" void g90_link_close(g90_link_t *link) {
-    delete link;
-}
-
 extern "C" bool g90_link_exchange(g90_link_t *link, const g90_ctl_t *ctl, g90_body_t *body, int timeout_ms,
                                   char *err, size_t err_len) {
     auto r = link->link->exchange(to_request(*ctl, link->profile), std::chrono::milliseconds{timeout_ms});
