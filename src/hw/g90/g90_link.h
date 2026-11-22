@@ -64,7 +64,6 @@ g90_link_t *g90_link_open(const char *path, const char *profile, char *err, size
  * head frame's modes and filters), from the next exchange on. Its label ("1.78", "1.79+") when it
  * changed, NULL when it was that already */
 const char *g90_link_follow_body(g90_link_t *link, uint8_t ver_major, uint8_t ver_minor);
-void        g90_link_close(g90_link_t *link);
 bool        g90_link_exchange(g90_link_t *link, const g90_ctl_t *ctl, g90_body_t *body, int timeout_ms,
                               char *err, size_t err_len);
 
