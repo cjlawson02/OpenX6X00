@@ -111,9 +111,11 @@ else()
                 add_subdirectory(bootanim)
                 # The base firmware writer (tools/base_update/base_flash.c): on the X6200 Settings > Info > Base
                 # firmware runs it, on the X6100 it is run over SSH (tools/base_update/flash.sh). It finds the radio
-                # in its device tree and takes only that radio's files
-                add_executable(x6x00-base-flash tools/base_update/base_flash.c)
-                install(TARGETS x6x00-base-flash DESTINATION sbin)
+                # in its device tree and takes only that radio's files. Not for the G90: its body is not one of them
+                if(NOT HW_BACKEND STREQUAL "g90")
+                        add_executable(x6x00-base-flash tools/base_update/base_flash.c)
+                        install(TARGETS x6x00-base-flash DESTINATION sbin)
+                endif()
         endif()
         # The Winlink modems for Pat: ardopcf, and Mercury (experimental). On the PC too, where they are
         # built only when asked for by name, for the Winlink tests (tools/winlink)
