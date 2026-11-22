@@ -14,8 +14,8 @@
 
 /* The panel, landscape. BOARD_GSOC (cmake -DBOARD_GSOC=ON): 1024×600, landscape
  * framebuffer, board_input_open() instead of the five X6100 event nodes.
- * HW_BACKEND=g90 does not select it. BOARD_FB_ROTATE_90=0 uses fbdev's plain
- * copy; DRM still needs 1 and falls back to fbdev when it is 0. */
+ * HW_BACKEND=g90 does not select it. BOARD_FB_ROTATE_90=0: fbdev's plain copy,
+ * or DRM with the GUI, waterfall and spectrum on planes of their own (drm.c). */
 #ifdef BOARD_GSOC
 #define BOARD_DISP_W        1024
 #define BOARD_DISP_H        600
