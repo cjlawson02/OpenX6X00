@@ -33,17 +33,10 @@
 #define BAND_NOT_LOADED -10
 
 params_t params = {
-#if BOARD_GSOC
-    /* Mains-powered head: moderate PWM and idle blank (Settings > Display overrides).
-     * Handheld X6100 blanks sooner; a bright always-on panel burns in static chrome. */
-    .brightness_normal = 6, .brightness_idle = 3, .brightness_timeout = 30,
-    .screen_off_min = 10, .screen_off_always = false,
-#else
     .brightness_normal = 5, .brightness_idle = 4, .brightness_timeout = 30,
     /* The screensaver after 5 minutes and never dark, until set. Dark after 5 minutes before it came: a radio
      * where that was changed keeps its moment, with the screensaver before it (migrations.c, _16) */
     .screen_off_min = SCREEN_OFF_MIN_DEFAULT, .screen_off_always = false,
-#endif
     .screen_saver           = { .x = SCREEN_SAVER_DEFAULT, .min = 0, .max = SCREEN_SAVER_LAST, .name = "screen_saver" },
     .screen_saver_min       = { .x = SCREEN_SAVER_MIN_DEFAULT, .name = "screen_saver_min" },
     .screen_saver_speed     = { .x = SAVER_SPEED_NORMAL, .min = 0, .max = SAVER_SPEED_LAST, .name = "screen_saver_speed" },
@@ -68,16 +61,9 @@ params_t params = {
     .clock_tx_timeout       = 1,
 
     .charger                = { .x = 1, .min = 0, .max = 2, .name = "charger"},
-#if defined(HW_BACKEND_G90)
-    /* No PA bias registers on the G90 DE-9 head link (hw_g90 ignores HW_BIAS_*). */
-    .bias_drive             = 0,
-    .bias_final             = 0,
-#else
     /* The X6100's PA bias. The X6200 takes its base's own (pa_bias.c, #173) */
     .bias_drive             = 450,
     .bias_final             = 650,
-#endif
-
     .line_in                = 10,
     .line_out               = 10,
     .spmode                 = { .x = false,             .name = "spmode" },
