@@ -12,9 +12,9 @@
  *  that late copy is not drawn beside the carrier. Tuning and meters stay on the DE-9 link.
  *  If the codec will not open, the body spectrum is used alone.
  *
- *  Compile-time defaults are BOARD_G90_DEV, BOARD_G90_PROFILE, and BOARD_G90_ALLOW_TX in board.h.
- *  G90_DEV, G90_PROFILE, and G90_ALLOW_TX override them when set and non-empty; G90_ALLOW_TX must
- *  be 1 to allow PTT and ATU tune on the wire, otherwise they are dropped. G90_PROFILE "auto" (the
+ *  Compile-time defaults are BOARD_G90_DEV and BOARD_G90_PROFILE in board.h. G90_DEV and
+ *  G90_PROFILE override them when set and non-empty. PTT and ATU tune go on the wire as the GUI
+ *  sets them; the GUI's own TX refusals (radio.c) decide, as on the other boards. G90_PROFILE "auto" (the
  *  default) encodes as 1.81 until the body answers, then as its own firmware asks (body bytes 6-7),
  *  again whenever those change (another body on the cable); "1.78" or "1.81" holds that one.
  *
@@ -71,7 +71,6 @@ static uint32_t        sent_hz;
 static int             iq_only_left;
 static radio_base_ver_t ver;
 static char            ver_str[16] = "?";
-static bool            allow_tx;
 static uint16_t        ver_raw;     /* the body's version bytes (7, 6) as last read; 0: none yet */
 static bool            profile_auto;    /* G90_PROFILE "auto": the encoding follows ver_raw */
 #ifdef BOARD_GSOC
@@ -83,17 +82,11 @@ static bool            af_vol_seen;
 bool hw_init(void) {
     const char *dev  = getenv("G90_DEV");
     const char *prof = getenv("G90_PROFILE");
-    const char *tx   = getenv("G90_ALLOW_TX");
     char        err[128] = "";
 
     dev  = dev && *dev ? dev : BOARD_G90_DEV;
     prof = prof && *prof ? prof : BOARD_G90_PROFILE;
     profile_auto = !strcmp(prof, "auto");
-    if (tx && *tx) {
-        allow_tx = !strcmp(tx, "1");
-    } else {
-        allow_tx = BOARD_G90_ALLOW_TX;
-    }
     link_    = g90_link_open(dev, profile_auto ? "1.81" : prof, err, sizeof(err));
     if (!link_) {
         fprintf(stderr, "hw_g90: %s\n", err);
@@ -103,8 +96,7 @@ bool hw_init(void) {
     ctl.vfo[1]     = (g90_vfo_ctl_t){7074000, radio_mode_usb_dig, 200, 2700, radio_agc_auto};
     ctl.volume     = 8;
     ctl.rf_power_w = 5;
-    ctl.allow_tx   = allow_tx;
-    fprintf(stderr, "hw_g90: %s, profile %s, TX %s\n", dev, prof, allow_tx ? "allowed" : "blocked");
+    fprintf(stderr, "hw_g90: %s, profile %s\n", dev, prof);
     {
         const char *fuse = getenv("G90_FUSE_IQ");
 
@@ -238,8 +230,8 @@ bool hw_set_i(hw_param_t p, int32_t v) {
         case HW_SPLIT:          ctl.split = v; break;
         case HW_RXVOL:          ctl.volume = (uint8_t)((v < 0 ? 0 : v > VOL_MAX_GUI ? VOL_MAX_GUI : v) * VOL_MAX_WIRE / VOL_MAX_GUI); break;
         case HW_ATU_ENABLED:    ctl.tuner = v; break;
-        case HW_ATU_TUNE:       ctl.atu_tune = allow_tx && v; break;
-        case HW_PTT:            ctl.ptt = allow_tx && v; break;
+        case HW_ATU_TUNE:       ctl.atu_tune = v; break;
+        case HW_PTT:            ctl.ptt = v; break;
         case HW_RIT:            ctl.rit_hz = (int16_t)v; break;
         case HW_NB:             ctl.nb = v; break;
         case HW_NB_LEVEL:       ctl.nb_level = (uint8_t)v; break;
@@ -269,9 +261,6 @@ bool hw_set_i(hw_param_t p, int32_t v) {
         g90_local_af_set(af_on, af_pct);
     }
 #endif
-    if ((p == HW_PTT || p == HW_ATU_TUNE) && v && !allow_tx) {
-        fprintf(stderr, "hw_g90: TX blocked (G90_ALLOW_TX is not 1)\n");
-    }
     return true;
 }
 

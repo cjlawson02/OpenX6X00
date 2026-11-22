@@ -36,9 +36,6 @@
 #ifndef BOARD_G90_PROFILE
 #define BOARD_G90_PROFILE   "auto"  /* the body's own firmware picks it (hw_g90.c) */
 #endif
-#ifndef BOARD_G90_ALLOW_TX
-#define BOARD_G90_ALLOW_TX  0
-#endif
 
 /* The backlight's sysfs value for the GUI's level 0..10: the X6100's and the X6200's driver counts the other way
  * (0 is full), so they write 10 - level. A board whose driver counts up (0 is off) sets this to 0 */

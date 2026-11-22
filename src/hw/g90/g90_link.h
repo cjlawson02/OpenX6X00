@@ -41,8 +41,6 @@ typedef struct {
     bool     tuner;
     bool     mic_comp;
     int16_t  rit_hz;            /* -512 .. 511 */
-    /* TX: nothing keys unless allow_tx */
-    bool     allow_tx;
     bool     ptt;
     bool     atu_tune;
     bool     shutdown;

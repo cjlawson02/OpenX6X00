@@ -75,13 +75,11 @@ g90::HeadEncodeRequest to_request(const g90_ctl_t &c, g90::Profile profile) {
     }
     req.controls = ctl;
 
-    if (c.allow_tx) {
-        g90::LabExtras lab;
-        lab.allow_tx     = true;
-        lab.arm_ptt      = c.ptt;
-        lab.arm_atu_tune = c.atu_tune;
-        req.lab          = lab;
-    }
+    g90::LabExtras lab;     /* libg90 keys nothing without it: the operate bit, PTT and the tune */
+    lab.allow_tx     = true;
+    lab.arm_ptt      = c.ptt;
+    lab.arm_atu_tune = c.atu_tune;
+    req.lab          = lab;
     return req;
 }
 

@@ -118,8 +118,7 @@ elseif(HW_BACKEND STREQUAL "g90")
     # libg90 is C++20; g90_link is the C face. An empty LIBG90_DIR fetches the pin below
     # (same pattern as aether_x6100_control). -DLIBG90_DIR=<tree> uses that tree instead.
     # -DLIBG90_USE_INSTALLED=ON is find_package(libg90) when a package is already installed.
-    # Profile defaults to auto, the body's reported firmware (G90_PROFILE). PTT and ATU tune
-    # stay off unless G90_ALLOW_TX=1.
+    # Profile defaults to auto, the body's reported firmware (G90_PROFILE).
     set(LIBG90_GIT_REPOSITORY "https://github.com/cjlawson02/libg90.git" CACHE STRING
         "libg90 git URL when LIBG90_DIR is empty")
     # No release tag yet: v0.1.0 (cfec8f2), the body S-meter decode fix and De9Link::set_profile
