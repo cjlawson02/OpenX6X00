@@ -365,7 +365,11 @@ static const struct {
 };
 
 /* The keys[] table's "PTT": the radio's own microphone, which the "key" command leases (ptt_down) */
+#ifdef BOARD_GSOC
+#define PTT_CODE    KEY_PLAYPAUSE          /* the hand mic's, gsoc_input.c */
+#else
 #define PTT_CODE    BTN_TRIGGER_HAPPY4
+#endif
 
 static uint64_t now_ms(void) {
     struct timespec ts;
