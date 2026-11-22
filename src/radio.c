@@ -376,13 +376,10 @@ bool radio_init() {
     }
 
 #ifdef BOARD_BASE_DETACHABLE
-    /* One try: a body not plugged in is not a fault. The flow finds it when it answers, and each
-     * exchange carries the whole state, so nothing set before then is lost */
-    if (hw_control_init()) {
-        start_trace("base answered");
-    } else {
-        start_trace("base: no answer, starting without it");
-    }
+    /* No try here: each G90 frame carries the whole state, and until radio_start has pushed the saved one the GUI
+     * only holds the built-in defaults. The flow finds the body once it answers, with the saved state in its first
+     * frame; a body not plugged in is not a fault */
+    start_trace("base: looked for by the flow");
     return true;
 #endif
 
