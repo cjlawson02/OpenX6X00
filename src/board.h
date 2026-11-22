@@ -91,6 +91,7 @@
 #define BOARD_MIC_MAX       20
 #define BOARD_HF_MIN_HZ     500000
 #define BOARD_HF_MAX_HZ     30000000
+#define BOARD_NB_MAX        10          /* the body's NB level and width fields are 4 bits */
 #else
 #define BOARD_PWR_MIN       0.1f        /* PWR and the external tuner's TUNE power */
 #define BOARD_SQL_MAX       100
@@ -98,10 +99,10 @@
 #define BOARD_MIC_MAX       50
 #define BOARD_HF_MIN_HZ     100000      /* upstream f6c97fa */
 #define BOARD_HF_MAX_HZ     55000000
+#define BOARD_NB_MAX        100
 #endif
 #define BOARD_RFG_MAX       100
 #define BOARD_XIT_MAX       1500
-#define BOARD_NB_MAX        100
 #define BOARD_KEY_SPEED_MIN 5           /* KEY Speed (KEY > Speed), WPM: TCI's speed commands and the speed steps */
 #define BOARD_KEY_SPEED_MAX 50          /* of a TCI text keep to it too */
 
