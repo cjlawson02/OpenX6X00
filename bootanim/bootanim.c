@@ -25,8 +25,7 @@
  *  Started in the background by /etc/init.d/S00bootanim. Any failure just
  *  skips that part: the boot never waits for it.
  *
- *  BOARD_GSOC: same 800×480 logo centred on the 1024×600 landscape framebuffer;
- *  no CW boot sound (that path is X6100/X6200 control + Morse GPIO).
+ *  BOARD_GSOC: no CW boot sound (that path is X6100/X6200 control + Morse GPIO).
  */
 
 #include <errno.h>
@@ -63,14 +62,11 @@
 #include <unistd.h>
 
 #include "boot_call.h"
+#include "../src/board.h"   /* the panel: BOARD_DISP_W/H, BOARD_FB_ROTATE_90 */
 #include "../src/boot_cw.h"     /* the GUI's: Settings shows what it will play */
 
 #define W        800    /* the logo, landscape */
 #define H        480
-#ifdef BOARD_GSOC
-#define FB_W     1024   /* GSOC panel, landscape */
-#define FB_H     600
-#endif
 #define SLOW(ms) ((ms) * 28 / 19)   /* the 1.9 s of steps played over 2.8 s */
 #define FADE_MS  SLOW(180)          /* each pixel fades in over this */
 #define FRAME_MS 40     /* 25 frames per second */
@@ -395,65 +391,45 @@ int main(int argc, char **argv) {
         boot_call_draw(logo, W, H, call);
     }
 
-#ifdef BOARD_GSOC
-    /* GSOC: 1024×600 landscape; logo centred with letterbox in the logo background */
+    /* The panel (board.h), BOARD_DISP_W x BOARD_DISP_H landscape with the logo centred on it. The X6100's and
+     * the X6200's framebuffer is portrait, BOARD_DISP_H x BOARD_DISP_W: landscape (x, y) is fb (y, 799 - x), as
+     * the kernel logo */
     int fd = open("/dev/fb0", O_RDWR);
     struct fb_var_screeninfo v;
     struct fb_fix_screeninfo f;
+#if BOARD_FB_ROTATE_90
     if (fd < 0 || ioctl(fd, FBIOGET_VSCREENINFO, &v) || ioctl(fd, FBIOGET_FSCREENINFO, &f) ||
-        v.xres != FB_W || v.yres != FB_H || v.bits_per_pixel != 32) return 1;
-    uint8_t *fb = mmap(NULL, f.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (fb == MAP_FAILED) return 1;
-    #define PIX(r, g, b) ((uint32_t)(r) << v.red.offset | (uint32_t)(g) << v.green.offset | (uint32_t)(b) << v.blue.offset)
-
-    const uint8_t *bg = logo;
-    const int      ox = (FB_W - W) / 2, oy = (FB_H - H) / 2;
-    const uint32_t bg_pix = PIX(bg[0], bg[1], bg[2]);
-    static uint32_t off[W * H];
-    static int16_t  t0[W * H];
-    static uint32_t src[W * H];
-    int n = 0, end = 0;
-
-    for (int y = 0; y < FB_H; y++)
-        for (int x = 0; x < FB_W; x++)
-            *(uint32_t *)(fb + y * f.line_length + x * 4) = bg_pix;
-
-    for (int y = 0; y < H; y++) {
-        for (int x = 0; x < W; x++) {
-            const uint8_t *p = logo + (y * W + x) * 3;
-            uint32_t       o = (oy + y) * f.line_length + (ox + x) * 4;
-
-            *(uint32_t *)(fb + o) = bg_pix;
-            if (p[0] == bg[0] && p[1] == bg[1] && p[2] == bg[2]) continue;
-            off[n] = o;
-            t0[n]  = own ? 0 : SLOW(start_ms(x, y, p));
-            src[n] = (y * W + x) * 3;
-            if (t0[n] + fade > end) end = t0[n] + fade;
-            n++;
-        }
-    }
+        v.xres != BOARD_DISP_H || v.yres != BOARD_DISP_W || v.bits_per_pixel != 32) return 1;
+    #define FB_AT(x, y) ((BOARD_DISP_W - 1 - (x)) * f.line_length + (y) * 4)
 #else
-    /* The panel is 480x800 portrait: landscape (x, y) is fb (y, 799 - x), as the kernel logo */
-    int fd = open("/dev/fb0", O_RDWR);
-    struct fb_var_screeninfo v;
-    struct fb_fix_screeninfo f;
     if (fd < 0 || ioctl(fd, FBIOGET_VSCREENINFO, &v) || ioctl(fd, FBIOGET_FSCREENINFO, &f) ||
-        v.xres != H || v.yres != W || v.bits_per_pixel != 32) return 1;
+        v.xres != BOARD_DISP_W || v.yres != BOARD_DISP_H || v.bits_per_pixel != 32) return 1;
+    #define FB_AT(x, y) ((y) * f.line_length + (x) * 4)
+#endif
     uint8_t *fb = mmap(NULL, f.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (fb == MAP_FAILED) return 1;
     #define PIX(r, g, b) ((uint32_t)(r) << v.red.offset | (uint32_t)(g) << v.green.offset | (uint32_t)(b) << v.blue.offset)
 
     /* Only the pixels that differ from the background change */
     const uint8_t *bg = logo;
+    const int      ox = (BOARD_DISP_W - W) / 2, oy = (BOARD_DISP_H - H) / 2;   /* 0 where the logo is the panel */
     static uint32_t off[W * H];
     static int16_t  t0[W * H];
     static uint32_t src[W * H];
     int n = 0, end = 0;
 
+    /* A panel bigger than the logo: the rest in the logo's background */
+    if (ox || oy) {
+        for (int y = 0; y < BOARD_DISP_H; y++) {
+            for (int x = 0; x < BOARD_DISP_W; x++) {
+                *(uint32_t *)(fb + FB_AT(x, y)) = PIX(bg[0], bg[1], bg[2]);
+            }
+        }
+    }
     for (int y = 0; y < H; y++) {
         for (int x = 0; x < W; x++) {
             const uint8_t *p = logo + (y * W + x) * 3;
-            uint32_t       o = (W - 1 - x) * f.line_length + y * 4;
+            uint32_t       o = FB_AT(ox + x, oy + y);
 
             *(uint32_t *)(fb + o) = PIX(bg[0], bg[1], bg[2]);
             if (p[0] == bg[0] && p[1] == bg[1] && p[2] == bg[2]) continue;
@@ -464,7 +440,6 @@ int main(int argc, char **argv) {
             n++;
         }
     }
-#endif
 
     pthread_t th;
     int       sound = sound_start(&th);
