@@ -175,9 +175,7 @@ static const char *span_narrower_label() {
 /* TX power in the digital apps: press for the next step, up to the apps' 7 W cap */
 static const char *dig_pwr_label() {
     static char buf[20];
-    float p = LV_MIN(cfg_sm.p_pwr.get(), TX_PLAYER_MAX_PWR_W);
-
-    snprintf(buf, sizeof(buf), "Power\n" BOARD_PWR_LABEL_FMT " W", p);
+    snprintf(buf, sizeof(buf), "Power\n%g W", LV_MIN(cfg_sm.p_pwr.get(), TX_PLAYER_MAX_PWR_W));
     return buf;
 }
 
