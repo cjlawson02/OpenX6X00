@@ -21,6 +21,7 @@
 #define BOARD_DISP_H        600
 #define BOARD_FB_ROTATE_90  0
 #define BOARD_INPUT_CUSTOM  1
+#define BOARD_BACKLIGHT_INVERTED 0   /* the kernel PWM counts up: 0 is off, 10 is full */
 #else
 #define BOARD_DISP_W        800
 #define BOARD_DISP_H        480
