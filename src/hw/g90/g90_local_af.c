@@ -13,15 +13,27 @@
 #include <string.h>
 #include <unistd.h>
 
-#define AF_SRC "alsa_input.platform-1c22c00.codec.stereo-fallback"
-#define AF_SNK "alsa_output.platform-1c22c00.codec.stereo-fallback"
+#include "../../board.h"
+
+#if !BOARD_G90_LOCAL_AF
+/* A head without the codec the body's AF comes back on (BOARD_G90_LOCAL_AF): the body's own speaker */
+void g90_local_af_set(bool on, int gain_pct) {
+    (void)on;
+    (void)gain_pct;
+}
+
+void g90_local_af_stop(void) {}
+#else
+
+#define AF_SRC BOARD_G90_AF_SOURCE
+#define AF_SNK BOARD_G90_AF_SINK
 
 static int  module_id = -1;
 static int  last_pct = -1;
-static int  analog = -1;        /* G90_AF_ANALOG=1: the codec's own Mic1 -> mixer -> amplifier path; -1 not read yet */
+static int  analog = -1;        /* the codec's own Mic1 -> mixer -> amplifier path (BOARD_G90_AF_ANALOG, G90_AF_ANALOG); -1 not read yet */
 static bool analog_on;
 
-/* The analog path (opt-in, G90_AF_ANALOG=1): Mic1 to the output mixers in the codec itself, no capture/playback
+/* The analog path (BOARD_G90_AF_ANALOG, G90_AF_ANALOG=0/1 overrides it): Mic1 to the output mixers in the codec itself, no capture/playback
  * through the CPU (the Pulse loopback was 8-17 % of a core at ~290 wakeups a second). VOL as the loopback's gain
  * (100 % unity): "Mic" (mixer, -4.5..+6 dB in 1.5 dB steps) up to the gain, "Power Amplifier" (-62..0 dB, 1 dB
  * steps, its 0 a mute) the rest down. Tops out at +6 dB: Mic1 Boost (+24 dB and up) stays 0, the input is line
@@ -141,7 +153,7 @@ void g90_local_af_set(bool on, int gain_pct) {
     if (analog < 0) {
         const char *e = getenv("G90_AF_ANALOG");
 
-        analog = e && !strcmp(e, "1");
+        analog = e && *e ? !strcmp(e, "1") : BOARD_G90_AF_ANALOG;
     }
     if (analog) {
         if (!analog_on) {
@@ -195,3 +207,5 @@ void g90_local_af_stop(void) {
         last_pct = -1;
     }
 }
+
+#endif /* BOARD_G90_LOCAL_AF */

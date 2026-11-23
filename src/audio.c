@@ -216,7 +216,7 @@ void audio_mixer_setup(radio_base_ver_t base_ver) {
     /* CS4271 on GSOC-Sound-Card (kernel cs4271.c): keep Master unmuted at full scale.
      * AF gain is the G90 VOL byte, not this codec attenuator. No Mic1/AIF1 path. */
     (void)base_ver;
-    res = system("amixer -c 1 sset 'Master' 127,127 unmute");
+    res = system("amixer -c " BOARD_MIXER_CARD " sset '" BOARD_MIXER_PLAY "' 127,127 unmute");
     (void)res;
 #else
     // overall level

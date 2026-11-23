@@ -22,6 +22,18 @@
 #define BOARD_FB_ROTATE_90  0
 #define BOARD_INPUT_CUSTOM  1
 #define BOARD_BACKLIGHT_INVERTED 0   /* the kernel PWM counts up: 0 is off, 10 is full */
+#define BOARD_WIFI_DEFAULT_ON 1      /* its USB adapter has no power pin: NetworkManager runs it whatever the switch says */
+/* The G90 body on the GSOC's DE-9, and the head's own codecs beside it (hw/g90): the G90_* environment variables of
+ * the same names override these */
+#define BOARD_G90_DEV       "/dev/ttyS1"    /* the DE-9's UART */
+#define BOARD_G90_FUSE_IQ   1               /* the CS4271's IQ on the skirts of the body's spectrum */
+#define BOARD_G90_IQ_DEV    "hw:1,0"        /* the CS4271 */
+#define BOARD_G90_IQ_MMAP   1
+#define BOARD_G90_IFE_GPIO  237             /* PH13: low selects the IQ jack */
+#define BOARD_G90_LOCAL_AF  1               /* the body's AF comes back on the head's codec (headphones bit) */
+#define BOARD_G90_AF_ANALOG 1               /* through the codec's mixer to the speaker, not a PulseAudio loopback */
+#define BOARD_G90_AF_SOURCE "alsa_input.platform-1c22c00.codec.stereo-fallback"
+#define BOARD_G90_AF_SINK   "alsa_output.platform-1c22c00.codec.stereo-fallback"
 #else
 #define BOARD_DISP_W        800
 #define BOARD_DISP_H        480
@@ -36,6 +48,27 @@
 #endif
 #ifndef BOARD_G90_PROFILE
 #define BOARD_G90_PROFILE   "auto"  /* the body's own firmware picks it (hw_g90.c) */
+#endif
+/* Without the GSOC's codecs: the body's spectrum and audio only */
+#ifndef BOARD_G90_FUSE_IQ
+#define BOARD_G90_FUSE_IQ   0
+#endif
+#ifndef BOARD_G90_IQ_DEV
+#define BOARD_G90_IQ_DEV    "hw:1,0"
+#endif
+#ifndef BOARD_G90_IQ_MMAP
+#define BOARD_G90_IQ_MMAP   0
+#endif
+#ifndef BOARD_G90_LOCAL_AF
+#define BOARD_G90_LOCAL_AF  0
+#endif
+#ifndef BOARD_G90_AF_ANALOG
+#define BOARD_G90_AF_ANALOG 0
+#endif
+
+/* WiFi on in a new settings database. Off on the X6100 and the X6200, whose chip has a power pin */
+#ifndef BOARD_WIFI_DEFAULT_ON
+#define BOARD_WIFI_DEFAULT_ON 0
 #endif
 
 /* The backlight's sysfs value for the GUI's level 0..10: the X6100's and the X6200's driver counts the other way
@@ -80,6 +113,8 @@
  * S-meter says whether it answers, the dial and the volume are held without it (base_link.c), and
  * the "No data from the base" notice is not shown */
 #define BOARD_BASE_DETACHABLE   1
+#define BOARD_BASE_NAME         "G90"   /* the link box's and the shade's text (base_link.c) */
+#define BOARD_BASE_CABLE        "DE-9"
 #endif
 
 /* The rest of the radio's ranges. The same on the X6100 and the X6200; the settings manager reads them. The G90
@@ -222,6 +257,7 @@
 #define BOARD_PA_SINK       "alsa_output.platform-sound.stereo-fallback"
 #define BOARD_PA_SOURCE     "alsa_input.platform-sound.stereo-fallback"
 #define BOARD_MIXER_PLAY    "Master"
+#define BOARD_MIXER_CARD    "1"         /* the CS4271's ALSA card (audio_mixer_setup) */
 #define BOARD_MIXER_REC     NULL
 #define BOARD_CAT_DEV       "/dev/ttyS2"
 #define BOARD_RTC_DEV       "/dev/rtc0"
