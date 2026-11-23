@@ -15,7 +15,7 @@
  *
  *  Frames: binary, 8 bytes header {u16 width, u16 height, u32 sequence} little endian, then JPEG.
  *  Commands (text): "key NAME 1|0" (press, release), "knob main|vol|mfk N" (detents, signed),
- *  "ping [N]". Answers: "hello <version> <boot>", "size W H", "pong [N]", "err <text>". <boot> is a
+ *  "ping [N]". Answers: "hello <version> <boot>", "size W H", "board NAME", "pong [N]", "err <text>". <boot> is a
  *  number chosen when the GUI started: a page that sees it change knows the radio restarted and
  *  nothing it had asked for survived (R6). The pong repeats the ping's number: a pong is dropped
  *  with the rest when the client's queue is full, so the page tells by the number which ping it
@@ -2603,7 +2603,7 @@ static void handle_text(client_t *c, char *text) {
     }
 }
 
-/* What a client is told once it is up: the radio's version and boot, the screen's size, the keys it has, the
+/* What a client is told once it is up: the radio's version and boot, the screen's size, the board, the keys it has, the
  * role and who controls the radio */
 static void client_greet(client_t *c) {
     char   line[320] = "keys";
@@ -2614,6 +2614,7 @@ static void client_greet(client_t *c) {
     int32_t w = sw, h = sh;
     pthread_mutex_unlock(&fmut);
     client_textf(c, "size %d %d", w ? w : BOARD_DISP_W, h ? h : BOARD_DISP_H);
+    client_textf(c, "board %s", BOARD_NAME_LOWER);     /* the page's layout for this radio, before its keys */
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]) && k < sizeof(line) - 1; i++)
         k += snprintf(line + k, sizeof(line) - k, " %s", keys[i].name);
     client_text(c, line);
