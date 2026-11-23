@@ -251,6 +251,7 @@
       const w = t.split(" "), sp = t.indexOf(" "), body = sp < 0 ? "" : t.slice(sp + 1);
       if (ses.onText(w[0], body)) return;             /* role, ctl, paired, tx, sessions */
       if (w[0] === "size") screenSize(+w[1], +w[2]);
+      else if (w[0] === "board") board = w[1];   /* before "keys": the GSOC's layout by name (a radio that sends none, by its PO key) */
       else if (w[0] === "keys") keysHave(w.slice(1));   /* the keys this radio has, and so its layout (the X6200 has no PRE, V/M, AGC or LOCK) */
       else if (w[0] === "err") { if (!ptt.err(body)) status(body, true, ses.holds(body)); }
     },
@@ -349,11 +350,12 @@
    * it is the X6200. Remembered in this browser, so the page opens in that radio's layout the next time */
   const X6200_KEYS = ["POWER", "GEN", "APP", "KEY", "PTT", "BAND_DOWN", "BAND_UP", "MSG", "DFN", "DFL", "AM", "CW", "SSB", "F1", "F2", "F3", "AB", "ATU", "FST", "F4", "F5"];
   const GSOC_KEYS = ["F", "PO", "ATU", "BAND_DOWN", "AGC", "BAND_UP", "LOCK", "MODE", "PTT"];
+  let board = "";     /* the radio's "board" line */
   let gsoc = false;   /* its layout shown: the left knob's BW in the MFK's place, its press MODE */
   function keysShow(names) {
     document.querySelectorAll("[data-key]").forEach(function(el) { el.hidden = names.indexOf(el.dataset.key) < 0; });
     const x6200 = names.indexOf("LOCK") < 0;
-    gsoc = names.indexOf("PO") >= 0;
+    gsoc = board ? board === "gsoc" : names.indexOf("PO") >= 0;
     document.getElementById("rm").classList.toggle("x6200", x6200);
     document.getElementById("rm").classList.toggle("gsoc", gsoc);
     document.querySelector("#vol .ring").dataset.push = gsoc ? "LOCK" : "VOL";
@@ -363,7 +365,7 @@
     const radio = keysShow(names);
     try { localStorage.setItem("remote_radio", radio); } catch (e) {}
   }
-  try { const radio = localStorage.getItem("remote_radio"); if (radio === "x6200") keysShow(X6200_KEYS); else if (radio === "gsoc") keysShow(GSOC_KEYS); } catch (e) {}
+  try { const radio = localStorage.getItem("remote_radio"); if (radio === "x6200") keysShow(X6200_KEYS); else if (radio === "gsoc") { board = "gsoc"; keysShow(GSOC_KEYS); board = ""; } } catch (e) {}
   document.querySelectorAll("[data-key]").forEach(function(el) {
     const name = el.dataset.key;
     /* PTT: held, or tapped on and off (PTT options, #241) */

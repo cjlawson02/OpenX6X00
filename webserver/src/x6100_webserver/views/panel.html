@@ -1110,6 +1110,7 @@ body.app h2, body.app #intro, body.app #intro-away { display:none; }
       else if (head === "modes") nModes = Math.min(MODES.length, parseInt(body, 10) || 8);
       else if (head === "volmax") LVL.vol.max = parseInt(body, 10) || 55;   /* the X6200: 100 */
       else if (head === "pwrmax") LVL.pwr.max = (parseInt(body, 10) || 100) / 10;   /* tenths of a watt; the X6200: 80 */
+      else if (head === "board") board = body;   /* before "keys": the GSOC's panel by name (a radio that sends none, by its PO key) */
       else if (head === "keys") keysHave(body.split(" "));
       else if (head === "plan") { plan = JSON.parse(body); requestDraw(); }
       else if (head === "ft8") { ft8 = JSON.parse(body); ft8At = Date.now(); showFt8(); }
@@ -1239,8 +1240,9 @@ body.app h2, body.app #intro, body.app #intro-away { display:none; }
   function keyUp(name, el) { if (!held[name]) return; delete held[name]; send("key " + name + " 0"); if (el) el.classList.remove("down"); }
   function releaseAll() { Object.keys(held).forEach(function(k) { keyUp(k, keyEl(k)); }); ptt.release(); }
   /* "keys NAME ...": the keys this radio has; the others are greyed (the X6200 has no PRE, V/M, AGC or LOCK key) */
+  let board = "";     /* the radio's "board" line */
   function keysHave(names) {
-    const gsoc = names.indexOf("PO") >= 0;
+    const gsoc = board ? board === "gsoc" : names.indexOf("PO") >= 0;
     $("#keys-x6100").prop("hidden", gsoc); $("#keys-gsoc").prop("hidden", !gsoc);
     document.querySelectorAll("[data-key]").forEach(function(el) { const no = names.indexOf(el.dataset.key) < 0; el.disabled = no; el.title = no ? "Not on this radio" : el.title; }); }
   document.querySelectorAll("[data-key], #pttbtn").forEach(function(el) {
