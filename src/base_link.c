@@ -93,7 +93,9 @@ static void poll(lv_timer_t *t) {
     if (link == LINK_AWAY) shade_place();
     if (link == shown) return;
     shown = link;
-    lv_label_set_text(label, link == LINK_UP ? "Connected to G90" : link == LINK_AWAY ? "G90 disconnected" : "Waiting for G90");
+    lv_label_set_text(label, link == LINK_UP     ? "Connected to " BOARD_BASE_NAME
+                             : link == LINK_AWAY ? BOARD_BASE_NAME " disconnected"
+                                                 : "Waiting for " BOARD_BASE_NAME);
     lv_obj_set_style_text_color(label, link == LINK_UP ? TC(ok) : TC(warn), 0);
     if (link == LINK_AWAY) {
         lv_obj_clear_flag(shade, LV_OBJ_FLAG_HIDDEN);
@@ -117,7 +119,7 @@ static void shade_build(lv_obj_t *screen, lv_obj_t *waterfall) {
     text = lv_label_create(shade);
     lv_obj_set_style_text_font(text, &sony_28, 0);
     lv_obj_set_style_text_color(text, TC(warn), 0);
-    lv_label_set_text(text, "G90 disconnected (DE-9)");
+    lv_label_set_text(text, BOARD_BASE_NAME " disconnected (" BOARD_BASE_CABLE ")");
     lv_obj_center(text);
 }
 

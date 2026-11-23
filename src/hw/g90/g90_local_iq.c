@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../board.h"
+
 #define IQ_RATE   G90_FUSE_SPAN_HZ
 #define IQ_CH     2
 #define FFT_EVERY 8     /* consume every block; transform every 8th (~40 Hz at 512/192k) */
@@ -226,24 +228,28 @@ done:
     return NULL;
 }
 
-/* Stock IFE: PH13 (gpio 237) low selects the IQ jack. Left as an input, the
- * codec sits on a flat −51 dBFS floor. G90_IFE=1 drives it high. */
+/* Stock IFE: PH13 (BOARD_G90_IFE_GPIO) low selects the IQ jack. Left as an input, the
+ * codec sits on a flat −51 dBFS floor. G90_IFE=1 drives it high. A board without it: nothing */
 static void ife_gpio(void) {
+#ifdef BOARD_G90_IFE_GPIO
     const char *ife = getenv("G90_IFE");
     const char *val = ife && !strcmp(ife, "1") ? "1" : "0";
+    char        path[64];
     FILE       *f;
 
     f = fopen("/sys/class/gpio/export", "w");
     if (f) {
-        fputs("237\n", f);
+        fprintf(f, "%d\n", BOARD_G90_IFE_GPIO);
         fclose(f);
     }
-    f = fopen("/sys/class/gpio/gpio237/direction", "w");
+    snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/direction", BOARD_G90_IFE_GPIO);
+    f = fopen(path, "w");
     if (f) {
         fputs("out\n", f);
         fclose(f);
     }
-    f = fopen("/sys/class/gpio/gpio237/value", "w");
+    snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/value", BOARD_G90_IFE_GPIO);
+    f = fopen(path, "w");
     if (!f) {
         fprintf(stderr, "hw_g90 iq: PH13 not set\n");
         return;
@@ -251,6 +257,7 @@ static void ife_gpio(void) {
     fprintf(f, "%s\n", val);
     fclose(f);
     fprintf(stderr, "hw_g90 iq: PH13=%s\n", val);
+#endif
 }
 
 bool g90_local_iq_start(void) {
@@ -267,7 +274,7 @@ bool g90_local_iq_start(void) {
     if (started) {
         return pcm != NULL;
     }
-    dev     = dev && *dev ? dev : "hw:1,0";
+    dev     = dev && *dev ? dev : BOARD_G90_IQ_DEV;
     swap_iq = sw && !strcmp(sw, "1");
     ife_gpio();
     for (int i = 0; i < G90_FUSE_BINS; i++) {
@@ -279,7 +286,7 @@ bool g90_local_iq_start(void) {
         pcm = NULL;
         return false;
     }
-    use_mmap = mm && !strcmp(mm, "1");
+    use_mmap = mm && *mm ? !strcmp(mm, "1") : BOARD_G90_IQ_MMAP;
     if (use_mmap) {
         /* default: one wakeup per transformed block (FFT_EVERY blocks) */
         period = per && atoi(per) >= G90_FUSE_BINS ? (snd_pcm_uframes_t)atoi(per) : G90_FUSE_BINS * FFT_EVERY;

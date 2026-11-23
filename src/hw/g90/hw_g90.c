@@ -73,7 +73,7 @@ static radio_base_ver_t ver;
 static char            ver_str[16] = "?";
 static uint16_t        ver_raw;     /* the body's version bytes (7, 6) as last read; 0: none yet */
 static bool            profile_auto;    /* G90_PROFILE "auto": the encoding follows ver_raw */
-#ifdef BOARD_GSOC
+#if BOARD_G90_LOCAL_AF
 static bool            af_vol_seen;
 #endif
 
@@ -100,11 +100,11 @@ bool hw_init(void) {
     {
         const char *fuse = getenv("G90_FUSE_IQ");
 
-        fuse_on = fuse && !strcmp(fuse, "1");
+        fuse_on = fuse && *fuse ? !strcmp(fuse, "1") : BOARD_G90_FUSE_IQ;
         if (fuse_on) {
             g90_fuse_state_reset(&fuse_st);
             if (!g90_local_iq_start()) {
-                fprintf(stderr, "hw_g90: G90_FUSE_IQ set, codec not open — body FFT only\n");
+                fprintf(stderr, "hw_g90: IQ fuse on, codec not open — body FFT only\n");
             }
         }
     }
@@ -250,7 +250,7 @@ bool hw_set_i(hw_param_t p, int32_t v) {
     af_on  = ctl.headphones;
     af_pct = ctl.volume * AF_MAX_PCT / VOL_MAX_WIRE;
     pthread_mutex_unlock(&mu);
-#ifdef BOARD_GSOC
+#if BOARD_G90_LOCAL_AF
     /* With the headphones bit the body mutes itself and its AF reaches the GSOC on Mic1: VOL is the
      * loopback's gain here (the wire volume no longer matters). 0 is silent, VOL max is AF_MAX_PCT. */
     if (p == HW_RXVOL) {
@@ -268,7 +268,8 @@ bool hw_set_f(hw_param_t p, float v) {
     if (p == HW_TXPWR_F) {
         int w = (int)(v + 0.5f);
         pthread_mutex_lock(&mu);
-        ctl.rf_power_w = (uint8_t)(w < 1 ? 1 : w > 20 ? 20 : w);
+        w = w < (int)BOARD_PWR_MIN ? (int)BOARD_PWR_MIN : w > (int)BOARD_PWR_MAX ? (int)BOARD_PWR_MAX : w;
+        ctl.rf_power_w = (uint8_t)w;
         pthread_mutex_unlock(&mu);
         return true;
     }
