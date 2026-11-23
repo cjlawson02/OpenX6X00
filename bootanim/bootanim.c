@@ -25,13 +25,16 @@
  *  Started in the background by /etc/init.d/S00bootanim. Any failure just
  *  skips that part: the boot never waits for it.
  *
- *  BOARD_GSOC: no CW boot sound (that path is X6100/X6200 control + Morse GPIO).
+ *  BOOT_SOUND=0 (CMake, HW_BACKEND=g90): no CW boot sound (that path is X6100/X6200 control + Morse GPIO).
  */
 
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fb.h>
-#ifndef BOARD_GSOC
+#ifndef BOOT_SOUND
+#define BOOT_SOUND 1        /* bootanim/CMakeLists.txt: 0 for HW_BACKEND=g90 */
+#endif
+#if BOOT_SOUND
 #include <gpiod.h>
 #include <alsa/asoundlib.h>
 /* The base, through the control library of the radio this is built for (BOARD_X6200 from CMake) */
@@ -106,7 +109,7 @@ static int64_t now_ms(void) {
 #define SOUND_MAX_MS 5700     /* CQ CQ is 5.16 s with the lead, any text 5.4 s at most (BOOT_CW_MAX_MS): the sound
                                * never runs longer than this */
 
-#ifndef BOARD_GSOC
+#if BOOT_SOUND
 /* The base unit, through the GUI's own control library: base_control_init()
  * sends every register with the library's defaults (RX, PTT off), as the GUI
  * does first thing at its start; voice_rec alone then makes the base play the
@@ -177,7 +180,7 @@ static void saved_text(const char *name, char *out, size_t size) {
     sqlite3_close(db);
 }
 
-#ifndef BOARD_GSOC
+#if BOOT_SOUND
 /* "-.-. --.-" keyed (boot_cw_t's code): ' ' adds 2 dits to the 1 after each element (3 between letters, 7 for "   ") */
 static void cw(const char *code) {
     const int dit = RATE * dit_ms / 1000, edge = RATE * EDGE_MS / 1000;
@@ -309,7 +312,7 @@ static void sound_end(pthread_t th) {
     key_release();
     unlink(AUDIO_BUSY);
 }
-#else  /* BOARD_GSOC: no X6100 CW / Morse GPIO boot sound */
+#else  /* BOOT_SOUND=0: no X6100 CW / Morse GPIO boot sound */
 static int sound_start(pthread_t *th) {
     (void)th;
     return 0;
@@ -317,7 +320,7 @@ static int sound_start(pthread_t *th) {
 static void sound_end(pthread_t th) {
     (void)th;
 }
-#endif /* !BOARD_GSOC */
+#endif /* BOOT_SOUND */
 
 /* ---- Animation ------------------------------------------------------------ */
 
