@@ -32,6 +32,7 @@ static plane_t primary;
 static bool planes = true, portrait_mode;
 static uint32_t *wf_shadow;
 static void wait_flip(void) {}
+static void (*modeset_cb)(void);   /* drm.c's, set by drm_set_modeset_cb() in the extract */
 void drm_wf_present_ring(const uint32_t *src, int32_t x, int32_t w, int32_t head);
 
 #include "drm_extract.inc"      /* drm_wf_present, MAX_STRIPS, strips, copy_cols, drm_wf_present_ring */
